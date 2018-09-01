@@ -9,7 +9,6 @@ RM := rm -rf
 # All of the sources participating in the build are defined here
 -include sources.mk
 -include startup/subdir.mk
--include Src/subdir.mk
 -include Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/subdir.mk
 -include Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM3/subdir.mk
 -include Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS/subdir.mk
@@ -17,6 +16,9 @@ RM := rm -rf
 -include Middlewares/ST/STM32_USB_Device_Library/Core/Src/subdir.mk
 -include Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/subdir.mk
 -include Drivers/STM32L1xx_HAL_Driver/Src/subdir.mk
+-include Application/USB/Src/subdir.mk
+-include Application/Drivers/Src/subdir.mk
+-include Application/Base/Src/subdir.mk
 -include subdir.mk
 -include objects.mk
 
@@ -34,13 +36,13 @@ endif
 # Add inputs and outputs from these tool invocations to the build variables 
 
 # All Target
-all: beeSmart.elf
+all: laske.elf
 
 # Tool invocations
-beeSmart.elf: $(OBJS) $(USER_OBJS) ../STM32L151CCTx_FLASH.ld
+laske.elf: $(OBJS) $(USER_OBJS) ../STM32L151CCTx_FLASH.ld
 	@echo 'Building target: $@'
 	@echo 'Invoking: MCU GCC Linker'
-	arm-none-eabi-gcc -mcpu=cortex-m3 -mthumb -mfloat-abi=soft -specs=nosys.specs -specs=nano.specs -T"../STM32L151CCTx_FLASH.ld" -Wl,-Map=output.map -Wl,--gc-sections -o "beeSmart.elf" @"objects.list" $(USER_OBJS) $(LIBS) -lm
+	arm-none-eabi-gcc -mcpu=cortex-m3 -mthumb -mfloat-abi=soft -specs=nosys.specs -specs=nano.specs -T"../STM32L151CCTx_FLASH.ld" -Wl,-Map=output.map -Wl,--gc-sections -o "laske.elf" @"objects.list" $(USER_OBJS) $(LIBS) -lm
 	@echo 'Finished building target: $@'
 	@echo ' '
 	$(MAKE) --no-print-directory post-build
@@ -52,8 +54,8 @@ clean:
 
 post-build:
 	-@echo 'Generating binary and Printing size information:'
-	arm-none-eabi-objcopy -O binary "beeSmart.elf" "beeSmart.bin"
-	arm-none-eabi-size "beeSmart.elf"
+	arm-none-eabi-objcopy -O binary "laske.elf" "laske.bin"
+	arm-none-eabi-size "laske.elf"
 	-@echo ' '
 
 .PHONY: all clean dependents
