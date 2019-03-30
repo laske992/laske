@@ -21,18 +21,28 @@
 #include "usbd_core.h"
 #include "usbd_cdc_if.h"
 #include "task.h"
+#include "util.h"
+#include "storage.h"
 
-#define SMSC_ADDRESS	(char *)"+385910401"
+typedef enum {
+	NOT_REGISTERED = 0,
+	REGISTERED,
+	SEARCHING_OPERATOR,
+	REGISTRATION_DENIED,
+	UNKNOWN,
+	ROAMING
+} CREG_resp_t;
 
-void SIM808_Init(void);
-void SIM808_GPIOInit(void);
-void SIM808_DeInit(void);
-void SIM808_GPIODeInit(void);
-ErrorType_t SIM808_SendCheckReply(uint8_t *send, uint8_t *reply, uint16_t timeout);
-ErrorType_t SIM808_SendString(uint8_t *send, uint16_t timeout);
-ErrorType_t SIM808_SendByte(uint8_t send, uint16_t timeout);
-ErrorType_t SIM808_DisableEcho(void);
-ErrorType_t SIM808_SendSMS(uint8_t *number, uint8_t *message);
+typedef enum {
+	PDU_MODE = 0,
+	TEXT_MODE
+} CMGF_resp_t;
+
+void SIM808_handleCall();
+void SIM808_GPIOInit();
+void SIM808_GPIODeInit();
+ErrorType_t SIM808_Init(void);
+ErrorType_t SIM808_SendSMS(char *);
 
 
 #endif /* DRIVERS_INC_SIM808_H_ */

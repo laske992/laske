@@ -60,91 +60,121 @@
 #include "power.h"
 #include "adc.h"
 #include "usb.h"
+#include "util.h"
 
-osThreadId defaultTaskHandle;
+osThreadId SIM808_SetupTaskHandle;
+osThreadId CallTaskHandle;
+osThreadId SMSTaskHandle;
+osThreadId ADCTaskHandle;
 
-
-void StartDefaultTask(void const * argument);
-
+static void _SIM808_SetupTask(void const *argument);
+static void _HandleCallTask(void const *argument);
+static void _SMSTask(void const *argument);
+static void _ADCTask(void const *argument);
 
 int main(void)
 {
 
 	CONFIG_Init();
+	LED_Init();
+	SIM808_GPIOInit();
+	MX_USB_DEVICE_Init();
 
+	/* Create the thread(s) */
+	/* SIM808 initial setup task */
+	osThreadDef(SIM808_SetupTask, _SIM808_SetupTask, osPriorityLow, 0, 500);
+	SIM808_SetupTaskHandle = osThreadCreate(osThread(SIM808_SetupTask), NULL);
 
-  /* Create the thread(s) */
-  /* definition and creation of defaultTask */
-  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 500);
-  defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
+	/* Incoming call handle task */
+	osThreadDef(HandleCallTask, _HandleCallTask, osPriorityHigh, 0, 500);
+	CallTaskHandle = osThreadCreate(osThread(HandleCallTask), NULL);
 
+	/* Prepare and send SMS task */
+	osThreadDef(SMSTask, _SMSTask, osPriorityNormal, 0, 500);
+	SMSTaskHandle = osThreadCreate(osThread(SMSTask), NULL);
 
-  /* Start scheduler */
-  osKernelStart();
-  
+	/* Measurement task */
+	osThreadDef(ADCTask, _ADCTask, osPriorityNormal, 0, 500);
+	ADCTaskHandle = osThreadCreate(osThread(ADCTask), NULL);
 
-  while (1)
-  {
+	/* Start scheduler */
+	osKernelStart();
 
-  }
-
+	for(;;);
 }
 
-/* StartDefaultTask function */
-void StartDefaultTask(void const * argument)
+void _setSignal(_TaskId TaskId, int32_t bit)
 {
-  /* init code for USB_DEVICE */
-	//char *buf = NULL;
-	//sprintf(buf, "Hello World!%c", (char )26);
-	/*
-  MX_USB_DEVICE_Init();
-  communicationInit();
-  sim808_rx_uartInit();
-  HAL_GPIO_WritePin(SIM_PWR_GPIO_Port, SIM_PWR_Pin, GPIO_PIN_SET);
-  vTaskDelay(1500);
-  HAL_GPIO_WritePin(SIM_PWR_GPIO_Port, SIM_PWR_Pin, GPIO_PIN_RESET);
-  vTaskDelay(10000);
-  sim808_sendMsg("AT+CMGF=1\r");
-  //sim808_sendMsg("ATD00385923300424;\r");
-  vTaskDelay(1000);
-  sim808_sendMsg("AT+CMGS=\"00385923300424\"");
-  vTaskDelay(1000);
-  sim808_sendMsg("Hello World!");
-  vTaskDelay(100);
-  sim808_sendMsg((char*)26);
-  */
-  //uint8_t *message = "Hello\r\n";
-	LED_Init();
+	osThreadId Thread;
+	switch(TaskId) {
+	case CALLTask:
+		Thread = CallTaskHandle;
+		break;
+	case ADCTask:
+		Thread = ADCTaskHandle;
+		break;
+	case SMSTask:
+		Thread = SMSTaskHandle;
+		break;
+	default:
+		return;
+	}
+	osSignalSet(Thread, bit);
+}
+
+/* _SIM808_SetupTask function */
+static void _SIM808_SetupTask(void const * argument)
+{
 	SIM808_Init();
-	MX_USB_DEVICE_Init();
-	vTaskDelay(1000);
-
-	SIM808_SendSMS((uint8_t *)"+385923300424", (uint8_t *)"Radi SMS.");
-
-/*
-	HAL_GPIO_WritePin(SIM_PWR_GPIO_Port, SIM_PWR_Pin, GPIO_PIN_SET);
-  vTaskDelay(1500);
-  HAL_GPIO_WritePin(SIM_PWR_GPIO_Port, SIM_PWR_Pin, GPIO_PIN_RESET);
-  //vTaskDelay(10000);
-*/
-  ErrorType_t returnError = UART_Error;
-  /*
-  //returnError = UART_SendCheckReply((uint8_t *)"ATE0\r\n", (uint8_t *)"OK", 1000);
-  returnError = UART_Error;
-  while(returnError == UART_Error) {
-  	returnError = UART_SendCheckReply((uint8_t *)"AT\r\n", (uint8_t *)"OK", 1000);
-  	vTaskDelay(500);
-  }
-
 
   /* USER CODE BEGIN 5 */
   /* Infinite loop */
   for(;;)
   {
-	  //CDC_Transmit_FS(message, 10);
-  	//LED_Toggle();
-    vTaskDelay(1000);
   }
+  vTaskDelete(SIM808_SetupTaskHandle);
   /* USER CODE END 5 */ 
 }
 
+/* Handle incoming call function */
+static void _HandleCallTask(void const * argument)
+{
+	osEvent event;
+
+  /* USER CODE BEGIN 5 */
+  /* Infinite loop */
+  for(;;)
+  {
+	  /* Wait an interrupt on SIM_RI pin */
+	  event = osSignalWait(BIT_1, osWaitForever);
+	  if (event.value.signals == BIT_1) {
+		  SIM808_handleCall();
+	  }
+  }
+  vTaskDelete(CallTaskHandle);
+  /* USER CODE END 5 */
+}
+
+/* Prepare and send SMS function */
+static void _SMSTask(void const * argument)
+{
+  /* USER CODE BEGIN 5 */
+  /* Infinite loop */
+  for(;;)
+  {
+  }
+  vTaskDelete(SMSTaskHandle);
+  /* USER CODE END 5 */
+}
+
+/* Prepare measurement data for SMS */
+static void _ADCTask(void const *argument)
+{
+	/* USER CODE BEGIN 5 */
+	/* Infinite loop */
+	for(;;)
+	{
+	}
+	vTaskDelete(ADCTaskHandle);
+	/* USER CODE END 5 */
+}

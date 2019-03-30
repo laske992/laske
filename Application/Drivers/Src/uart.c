@@ -11,7 +11,11 @@
 UART_HandleTypeDef huart1;
 TIM_HandleTypeDef htim3;
 uint8_t rxByte;
-static uint8_t sim808reply[SIM808_BUFFER_SIZE];
+
+static void UART_QueueReset();
+static void UART_PutByte(uint8_t);
+static void UART_GetByte( uint8_t *);
+static void UART_RxDeQueue(char *);
 
 xSemaphoreHandle txBinarySemaphore = NULL;
 xSemaphoreHandle rxBinarySemaphore = NULL;
@@ -93,8 +97,10 @@ void UART_TransmissionCompleteHandler(void) {
 	}
 }
 
-void UART_QueueReset(void) {
-	// Reset the queue
+static void
+UART_QueueReset(void)
+{
+	/* Reset the queue */
 	xQueueReset(uartTxQueue);
 	xQueueReset(uartRxQueue);
 }
@@ -109,12 +115,11 @@ void UART_TxQueueFill(uint8_t *data) {
 	}
 }
 
-void UART_RxDeQueue(uint8_t *data) {
-	uint16_t i = 0;
-
-	while(uxQueueMessagesWaiting(uartRxQueue) > 0) {
-		data[i] = UART_RxQueueGetByte();
-		i++;
+static void
+UART_RxDeQueue(char *data)
+{
+	while (uxQueueMessagesWaiting(uartRxQueue) > 0) {
+		PUT_BYTE(data, UART_RxQueueGetByte());
 	}
 }
 
@@ -160,12 +165,13 @@ uint8_t UART_RxQueueGetByte(void) {
 	return data;
 }
 
-void UART_PutByte( uint8_t ucByte )
+static void
+UART_PutByte(uint8_t ucByte)
 {
 	huart1.Instance->DR = ucByte;
 }
 
-void UART_GetByte( uint8_t * pucByte )
+static void UART_GetByte( uint8_t * pucByte )
 {
 	*pucByte=huart1.Instance->DR;
 }
@@ -223,17 +229,20 @@ void TIM3_IRQHandler(void)
 		taskYIELD ();
 }
 
-ErrorType_t UART_TakeMutex(uint16_t timeout) {
+ErrorType_t UART_TakeMutex(uint16_t timeout)
+{
 	if(xSemaphoreTake(UARTMutex, timeout) == pdFALSE)
 		return UART_Error;
 	else
 		return Ok;
 }
-void UART_GiveMutex(void) {
+void UART_GiveMutex(void)
+{
 	xSemaphoreGive(UARTMutex);
 }
 
-ErrorType_t UART_SendByte(uint8_t dataToSend, uint16_t timeout) {
+ErrorType_t UART_SendByte(uint8_t dataToSend, uint16_t timeout)
+{
 	// Take mutex first
 	if(UART_TakeMutex(timeout) != Ok)
 		return UART_Error;
@@ -257,70 +266,49 @@ ErrorType_t UART_SendByte(uint8_t dataToSend, uint16_t timeout) {
 	return Ok;
 }
 
-ErrorType_t UART_SendString(uint8_t *dataToSend, uint16_t timeout) {
-	// Take mutex first
-	if(UART_TakeMutex(timeout) != Ok)
-		return UART_Error;
-
-	// Reset the queues
-	UART_QueueReset();
-
-	// Fill the TX queue
-	UART_TxQueueFill(dataToSend);
-
-	// Enable UART transmitter
-	UART_PutByte(UART_TxQueueGetByte());
-
-	// Delay till the whole frame is transmitted
-	if(xSemaphoreTake(txBinarySemaphore, timeout) == pdFALSE) {
-		UART_GiveMutex();
-		return UART_Error;
+void
+UART_GetData(char *data)
+{
+	/* Wait to get the answer from sim808 */
+	if (xSemaphoreTake(rxBinarySemaphore, 100) == pdFALSE) {
+		return;
 	}
-
-	UART_GiveMutex();
-	return Ok;
+	/* Get the received message */
+	UART_RxDeQueue(data);
 }
 
-ErrorType_t UART_SendCheckReply(uint8_t *send, uint8_t *reply, uint16_t timeout) {
+ErrorType_t
+UART_Send(uint8_t *data, uint16_t timeout,
+		uint8_t req_id, SIM808_checkResp *cb)
+{
+	ErrorType_t status = Ok;
+	char sim808reply[SIM808_BUFFER_SIZE];
 
-
-	// Take mutex first
-	if(UART_TakeMutex(timeout) != Ok)
+	/* Take mutex first */
+	if(UART_TakeMutex(timeout) != Ok) {
 		return UART_Error;
-
-	// Reset the queues
+	}
+	/* Reset the queues */
 	UART_QueueReset();
 
-	// Fill the TX queue
-	UART_TxQueueFill(send);
+	/* Fill the TX queue */
+	UART_TxQueueFill(data);
 
-	// Enable UART transmitter
+	/* Enable UART transmitter */
 	UART_PutByte(UART_TxQueueGetByte());
 
-	// Delay till the whole frame is transmitted
-	if(xSemaphoreTake(txBinarySemaphore, timeout) == pdFALSE) {
+	/* Delay till the whole frame is transmitted */
+	if (xSemaphoreTake(txBinarySemaphore, timeout) == pdFALSE) {
 		UART_GiveMutex();
 		return UART_Error;
 	}
-
-	// Get the answer from sim808
-
-	// Delay till the whole frame is received
-	if(xSemaphoreTake(rxBinarySemaphore, timeout) == pdFALSE) {
-		UART_GiveMutex();
-		return UART_Error;
+	if (cb) {
+		/* Parse replay */
+		UART_GetData(sim808reply);
+		status = cb(sim808reply, req_id);
 	}
-
-	// Get the received message
-	UART_RxDeQueue(sim808reply);
-
-	if(strcmp((char *)sim808reply, (char *)reply) != 0) {
-		UART_GiveMutex();
-		return UART_Error;
-	}
-
 	UART_GiveMutex();
-	return Ok;
+	return status;
 }
 
 void USART1_IRQHandler(void)
