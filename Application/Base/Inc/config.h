@@ -18,9 +18,10 @@
 
 typedef enum {
 	Ok = 0,
-	SIM808_Error = 1,
-	FreeRTOS_Error = 2,
-	ADC_Error = 3
+	UART_Error = 1,
+	SIM808_Error = 2,
+	FreeRTOS_Error = 3,
+	ADC_Error = 4
 }ErrorType_t;
 
 #define ADC_WEIGHT_Pin 					GPIO_PIN_1
@@ -39,8 +40,8 @@ typedef enum {
 #define USB_DETECT_Pin 					GPIO_PIN_8
 #define USB_DETECT_GPIO_Port 		GPIOA
 #define USB_DETECT_EXTI_IRQn 		EXTI9_5_IRQn
-#define ADC_PWR_Pin 						GPIO_PIN_5
-#define ADC_PWR_GPIO_Port 			GPIOB
+#define ADC_PWR_Pin 						GPIO_PIN_0
+#define ADC_PWR_GPIO_Port 			GPIOA
 
 void CONFIG_Init									(void);
 void CONFIG_ClockConfig						(void);

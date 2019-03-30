@@ -69,14 +69,14 @@ void ADC_GPIOInit(void) {
 	GPIO_InitTypeDef GPIO_InitStruct;
 
 	/*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, ADC_PWR_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, ADC_PWR_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : LED_STAT_Pin SIM_PWR_Pin SIM_DTR_Pin ADC_PWR_Pin */
   GPIO_InitStruct.Pin = ADC_PWR_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
 }
 void ADC_DeInit(void) {

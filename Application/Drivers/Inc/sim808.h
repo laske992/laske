@@ -22,23 +22,17 @@
 #include "usbd_cdc_if.h"
 #include "task.h"
 
-
-
-// received message
-char sim808MessageRecieve[MAX_COMMAND_INPUT_LENGTH];
+#define SMSC_ADDRESS	(char *)"+385910401"
 
 void SIM808_Init(void);
 void SIM808_GPIOInit(void);
 void SIM808_DeInit(void);
 void SIM808_GPIODeInit(void);
-HAL_StatusTypeDef sim808_sendMsg(char *data);
-void sim808RecieveTask(void *arg);
-void sim808_rx_uartInit(void);
-void sim808_rx_uartDeInit(void);
+ErrorType_t SIM808_SendCheckReply(uint8_t *send, uint8_t *reply, uint16_t timeout);
+ErrorType_t SIM808_SendString(uint8_t *send, uint16_t timeout);
+ErrorType_t SIM808_SendByte(uint8_t send, uint16_t timeout);
+ErrorType_t SIM808_DisableEcho(void);
+ErrorType_t SIM808_SendSMS(uint8_t *number, uint8_t *message);
 
-
-//HAL_StatusTypeDef CommunicationParser								(char *Message);
-//HAL_StatusTypeDef	CommunicationRespond							(char *Message);
-//HAL_StatusTypeDef CommunicationParameterReadWrite		(char *Name, char *GetSet, char *Value, char *Response);
 
 #endif /* DRIVERS_INC_SIM808_H_ */

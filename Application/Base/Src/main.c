@@ -75,7 +75,7 @@ int main(void)
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
-  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
+  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 500);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
 
@@ -115,13 +115,34 @@ void StartDefaultTask(void const * argument)
   */
   //uint8_t *message = "Hello\r\n";
 	LED_Init();
+	SIM808_Init();
+	MX_USB_DEVICE_Init();
+	vTaskDelay(1000);
+
+	SIM808_SendSMS((uint8_t *)"+385923300424", (uint8_t *)"Radi SMS.");
+
+/*
+	HAL_GPIO_WritePin(SIM_PWR_GPIO_Port, SIM_PWR_Pin, GPIO_PIN_SET);
+  vTaskDelay(1500);
+  HAL_GPIO_WritePin(SIM_PWR_GPIO_Port, SIM_PWR_Pin, GPIO_PIN_RESET);
+  //vTaskDelay(10000);
+*/
+  ErrorType_t returnError = UART_Error;
+  /*
+  //returnError = UART_SendCheckReply((uint8_t *)"ATE0\r\n", (uint8_t *)"OK", 1000);
+  returnError = UART_Error;
+  while(returnError == UART_Error) {
+  	returnError = UART_SendCheckReply((uint8_t *)"AT\r\n", (uint8_t *)"OK", 1000);
+  	vTaskDelay(500);
+  }
+
 
   /* USER CODE BEGIN 5 */
   /* Infinite loop */
   for(;;)
   {
 	  //CDC_Transmit_FS(message, 10);
-  	LED_Toggle();
+  	//LED_Toggle();
     vTaskDelay(1000);
   }
   /* USER CODE END 5 */ 

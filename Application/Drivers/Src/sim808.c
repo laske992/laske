@@ -13,12 +13,14 @@ xQueueHandle inputQueue;
 xTaskHandle  recieveTaskHandle;
 xSemaphoreHandle CDCMutex;
 
-static HAL_StatusTypeDef sim808RecvParser(char *msg);
+static char *smscAddress = SMSC_ADDRESS;
 
 void SIM808_Init(void) {
 	SIM808_GPIOInit();
 
 	UART_Init();
+
+	//SIM808_DisableEcho();
 }
 void SIM808_GPIOInit(void) {
 
@@ -56,59 +58,39 @@ void SIM808_GPIODeInit(void) {
 	HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
 }
 
-
-HAL_StatusTypeDef sim808_sendMsg(char *data) {
-	HAL_StatusTypeDef status;
-
-	status = HAL_UART_Transmit(&huart1, (uint8_t *)data, strlen(data), 500);
-	return status;
+ErrorType_t SIM808_SendCheckReply(uint8_t *send, uint8_t *reply, uint16_t timeout) {
+	uint8_t dataToSend[50];
+	sprintf((char *)dataToSend, "%s\r\n", (char *)send);
+	return UART_SendCheckReply(dataToSend, reply, timeout);
 }
 
-void sim808RecieveTask(void *arg) {
-	HAL_StatusTypeDef Status = HAL_OK;
-
-  for(;;){
-    if(xQueueReceive( inputQueue,&sim808MessageRecieve, 0xFFFFFFFF ) == pdTRUE){
-			Status = sim808RecvParser(sim808MessageRecieve);
-			if (Status == HAL_OK) {
-				CDC_Transmit_FS(sim808MessageRecieve, strlen(sim808MessageRecieve));
-			} else {
-				strcpy(sim808MessageRecieve,"[ERROR] Unknown error occured#");
-				CDC_Transmit_FS(sim808MessageRecieve, strlen(sim808MessageRecieve));
-			}
-		}
-	}
+ErrorType_t SIM808_SendString(uint8_t *send, uint16_t timeout) {
+	uint8_t dataToSend[50];
+	sprintf((char *)dataToSend, "%s\r\n", (char *)send);
+	return UART_SendString(dataToSend, timeout);
 }
 
-void sim808_rx_uartInit(void) {
-	BaseType_t xReturned;
-	CDCMutex = xSemaphoreCreateMutex();
-	inputQueue = xQueueCreate(2, sizeof(sim808MessageRecieve));
-
-	if(!inputQueue)
-		Error_Handler(FreeRTOS_Error);
-
-	xReturned = xTaskCreate(sim808RecieveTask, (const char *)"sim808RecTask", 100, NULL, 9, &recieveTaskHandle);
-	if(xReturned != pdPASS)
-		Error_Handler(FreeRTOS_Error);
+ErrorType_t SIM808_SendByte(uint8_t send, uint16_t timeout) {
+	return UART_SendByte(send, timeout);
 }
 
-void sim808_rx_uartDeInit(void) {
-
-	if (CDCMutex) {
-		vSemaphoreDelete(CDCMutex);
-		CDCMutex = NULL;
-	}
-	if (recieveTaskHandle) {
-		vTaskDelete(recieveTaskHandle);
-		recieveTaskHandle = NULL;
-	}
-	if (inputQueue) {
-		vQueueDelete(inputQueue);
-		inputQueue=NULL;
-	}
+ErrorType_t SIM808_DisableEcho(void) {
+	return SIM808_SendString((uint8_t *)"ATE0", 100);
 }
 
-static HAL_StatusTypeDef sim808RecvParser(char *msg) {
-	return HAL_OK;
+ErrorType_t SIM808_SendSMS(uint8_t *number, uint8_t *message) {
+	char dataToSend[50];
+	if(SIM808_SendCheckReply((uint8_t *)"AT+CMGF=1", (uint8_t *)"OK", 1000) != Ok) return UART_Error;
+  vTaskDelay(1000);
+  sprintf(dataToSend, "AT+CSCA=\"%s\"", smscAddress);
+  if(SIM808_SendCheckReply((uint8_t *)dataToSend, (uint8_t *)"OK", 1000) != Ok) return UART_Error;
+  vTaskDelay(1000);
+  sprintf(dataToSend, "AT+CMGS=\"%s\"", number);
+  if(SIM808_SendString((uint8_t *)dataToSend, 1000) != Ok) return UART_Error;
+  vTaskDelay(1000);
+  if(UART_SendString(message, 1000) != Ok) return UART_Error;
+  vTaskDelay(1000);
+  if(SIM808_SendByte((char)26, 1000) != Ok) return UART_Error;
+
+  return Ok;
 }
