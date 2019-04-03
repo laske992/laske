@@ -43,7 +43,7 @@ char number[MAX_NUM_SIZE];
 /* Private function prototypes -----------------------------------------------*/
 static void SIM808_PowerOn();
 static void SIM808_SetNumber();
-static void SIM808_GetNumber();
+static bool SIM808_GetNumber();
 static ErrorType_t SIM808_DisableEcho();
 static ErrorType_t SIM808_Handshake();
 static ErrorType_t SIM808_CheckSIMCard();
