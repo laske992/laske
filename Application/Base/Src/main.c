@@ -48,17 +48,13 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "config.h"
-
 #include "stm32l1xx_hal.h"
 #include "cmsis_os.h"
-
-#include "communication.h"
-#include "sim808.h"
 #include "usb_device.h"
-
 #include "led.h"
 #include "power.h"
 #include "adc.h"
+#include "sim808.h"
 #include "usb.h"
 #include "util.h"
 
@@ -77,6 +73,7 @@ int main(void)
 
 	CONFIG_Init();
 	LED_Init();
+	UART_Init();
 	SIM808_GPIOInit();
 	MX_USB_DEVICE_Init();
 
@@ -144,7 +141,7 @@ static void _HandleCallTask(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-	  /* Wait an interrupt on SIM_RI pin */
+	  /* Wait interrupt on SIM_RI pin */
 	  event = osSignalWait(BIT_1, osWaitForever);
 	  if (event.value.signals == BIT_1) {
 		  SIM808_handleCall();
@@ -169,9 +166,16 @@ static void _SMSTask(void const * argument)
 /* Prepare measurement data for SMS */
 static void _ADCTask(void const *argument)
 {
+	osEvent event;
+
 	/* USER CODE BEGIN 5 */
 	/* Infinite loop */
 	for(;;)
+		/* Wait signal from CallHandleTask */
+		event = osSignalWait(BIT_2, osWaitForever);
+	if (event.value.signals == BIT_2) {
+		SIM808_handleCall();
+	}
 	{
 	}
 	vTaskDelete(ADCTaskHandle);

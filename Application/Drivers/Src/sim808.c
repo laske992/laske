@@ -77,8 +77,6 @@ SIM808_Init(void)
 	uint8_t attempts = 5;
 	/* Init peripheralas */
 
-	/* Init UART */
-	UART_Init();
 	SIM808_PowerOn();
 	SIM808_GetNumber();
 	do {
@@ -105,7 +103,10 @@ void
 SIM808_handleCall(char *input)
 {
 	/* Get CLIP input while RING */
-	SIM808_GetNumber();
+	if (SIM808_GetNumber()) {
+		/* Start Measurement task */
+		_setSignal(ADCTask, BIT_2);
+	}
 }
 
 void
@@ -283,11 +284,11 @@ SIM808_parseNumber(char *resp, char *num)
 	start++;
 	end = strchr(start, '"');
 	len = end - start;
-	strncpy(num, start, (size_t)len - 1);
+	strncpy(num, start, (size_t)len + 1);
 	num[len] = '\0';
 }
 
-static void
+static bool
 SIM808_GetNumber(void)
 {
 	char CLIP_Data[MAX_COMMAND_INPUT_LENGTH] = {0};
@@ -299,9 +300,9 @@ SIM808_GetNumber(void)
 	/* Compare config_read number and CallNumer */
 	if (!strstr(number, CallNumber)) {
 		/* Unknown number */
-		return;
+		return false;
 	}
-	_setSignal(ADCTask, BIT_1);
+	return true;
 }
 
 static void
