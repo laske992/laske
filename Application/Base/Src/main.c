@@ -174,7 +174,7 @@ static void _ADCTask(void const *argument)
 		/* Wait signal from CallHandleTask */
 		event = osSignalWait(BIT_2, osWaitForever);
 	if (event.value.signals == BIT_2) {
-		SIM808_handleCall();
+		ADC_startMeasurement();
 	}
 	{
 	}

@@ -9,17 +9,29 @@
 
 /* Private define ------------------------------------------------------------*/
 #define MAX_NUM_SIZE 30
+#define NUM_TYPE_SIZE 3
 #define SIM808_ENTER ("\r\n")
 #define SEND_SMS (0x1A)		/* CTRL + Z */
 
 /* Private typedef -----------------------------------------------------------*/
 typedef ErrorType_t (SIM808_parseResp)(char *);
+typedef enum {
+	Unknown_type = 129,
+	National_type = 161,
+	International_type = 145,
+	Net_specific_type = 177
+} num_type_t;
 
 struct sim808_req {
 	const char *cmd;
 	const char *resp;
 	SIM808_checkResp *cb;
 	SIM808_parseResp *parse_cb;
+};
+
+struct number_t {
+	num_type_t type;
+	char num[MAX_NUM_SIZE];
 };
 
 enum {
@@ -38,12 +50,17 @@ enum {
 xQueueHandle inputQueue;
 xTaskHandle  recieveTaskHandle;
 xSemaphoreHandle CDCMutex;
-char number[MAX_NUM_SIZE];
+bool numberMemorized;
+struct number_t number;
 
 /* Private function prototypes -----------------------------------------------*/
 static void SIM808_PowerOn();
-static void SIM808_SetNumber();
 static bool SIM808_GetNumber();
+static void SIM808_parseNumber(char *, struct number_t *);
+static void SIM808_memorizeNumber();
+static bool SIM808_readEEPROMNumber();
+static void SIM808_forgetNumber();
+static bool isNumberMemorized();
 static ErrorType_t SIM808_DisableEcho();
 static ErrorType_t SIM808_Handshake();
 static ErrorType_t SIM808_CheckSIMCard();
@@ -75,10 +92,11 @@ SIM808_Init(void)
 {
 	ErrorType_t status = Ok;
 	uint8_t attempts = 5;
-	/* Init peripheralas */
 
 	SIM808_PowerOn();
-	SIM808_GetNumber();
+	if (!(numberMemorized = SIM808_readEEPROMNumber())) {
+		SIM808_forgetNumber();
+	}
 	do {
 		if ((status = SIM808_DisableEcho())) continue;
 		if ((status = SIM808_Handshake())) continue;
@@ -97,7 +115,6 @@ SIM808_DeInit(void)
 	SIM808_GPIODeInit();
 	UART_DeInit();
 }
-
 
 void
 SIM808_handleCall(char *input)
@@ -273,32 +290,41 @@ SIM808_CMGF_resp(char *resp)
 
 /* Ex. +CLIP: "+989108793902",145,"",0,"",0 */
 static void
-SIM808_parseNumber(char *resp, char *num)
+SIM808_parseNumber(char *resp, struct number_t *num)
 {
 	char *start, *end;
+	char type[NUM_TYPE_SIZE + 1];
 	uint8_t len;
 	if (!strstr(resp, "+CLIP: ")) {
 		return;
 	}
 	start = strchr(resp, '"');
-	start++;
-	end = strchr(start, '"');
+	end = strchr(start, ',');
 	len = end - start;
-	strncpy(num, start, (size_t)len + 1);
-	num[len] = '\0';
+	/* num is inside "" */
+	strncpy(num->num, start, (size_t)len + 1);
+	num->num[len] = '\0';
+	/* Get number type */
+	end++;
+	strncpy(type, end, NUM_TYPE_SIZE);
+	num->type = atoi(type);
 }
 
 static bool
 SIM808_GetNumber(void)
 {
-	char CLIP_Data[MAX_COMMAND_INPUT_LENGTH] = {0};
-	char CallNumber[MAX_NUM_SIZE] = {0};
+	char CLIP_resp[MAX_COMMAND_INPUT_LENGTH] = {0};
+	struct number_t CallNumber = {.type = 0, .num = {0}};
 
-	UART_GetData(CLIP_Data);
-	SIM808_parseNumber(CLIP_Data, CallNumber);
+	UART_GetData(CLIP_resp);
+	SIM808_parseNumber(CLIP_resp, &CallNumber);
 
-	/* Compare config_read number and CallNumer */
-	if (!strstr(number, CallNumber)) {
+	if (!isNumberMemorized()) {
+		/* Memorize the number on first call */
+		SIM808_memorizeNumber(CallNumber);
+	}
+	/* Compare config_read number and CallNumber */
+	if (STR_COMPARE(number.num, CallNumber.num)) {
 		/* Unknown number */
 		return false;
 	}
@@ -306,16 +332,50 @@ SIM808_GetNumber(void)
 }
 
 static void
-SIM808_SetNumber(void)
+SIM808_memorizeNumber(struct number_t *num)
 {
-	storage_write(number, STORAGE_NUMBER_ADDR, strlen(number));
+	/* Only if number is not memorized */
+	if (isNumberMemorized()) {
+		return;
+	}
+	if (!storage_write((void *)num, STORAGE_NUMBER_ADDR, sizeof(struct number_t))) {
+		/* Write failed */
+		return;
+	}
+	memmove(&number, num, sizeof(struct number_t));
+	numberMemorized = true;
 }
 
+static bool
+SIM808_readEEPROMNumber(void)
+{
+	/* Get data from EEPROM */
+	storage_read(&number, STORAGE_NUMBER_ADDR, sizeof(struct number_t));
+
+	/* Validate number by number type */
+	switch(number.type) {
+	case Unknown_type:
+	case Net_specific_type:
+		return false;
+	case National_type:
+	case International_type:
+		break;
+	default:
+		return false;
+	}
+	return true;
+}
+
+static void
+SIM808_forgetNumber(void)
+{
+	memset(&number, 0, sizeof(struct number_t));
+}
 ErrorType_t
 SIM808_SendSMS(char *message)
 {
 	ErrorType_t status = Ok;
-	if ((status = SIM808_SendAT(number, SET_NUMBER, 200))) {
+	if ((status = SIM808_SendAT(number.num, SET_NUMBER, 200))) {
 		return status;
 	}
 	vTaskDelay(1000);
@@ -323,6 +383,12 @@ SIM808_SendSMS(char *message)
 		return status;
 	}
 	return status;
+}
+
+static bool
+isNumberMemorized(void)
+{
+	return numberMemorized == true;
 }
 
 /**

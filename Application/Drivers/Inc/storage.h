@@ -13,7 +13,7 @@
 #define STORAGE_NUMBER_ADDR         DATA_EEPROM_START_ADDR
 #define STORAGE_VALUES_ADDR			DATA_EEPROM_START_ADDR + 50
 
-void storage_read(uint32_t *, uint32_t, uint32_t);
-HAL_StatusTypeDef storage_write(char *, uint32_t, uint32_t);
+void storage_read(void *, uint32_t, uint32_t);
+bool storage_write(void *, uint32_t, uint32_t);
 
 #endif /* DRIVERS_INC_STORAGE_H_ */

@@ -14,6 +14,7 @@
 #define LOADCELL_MAX_SENSING 200	/* kg */
 #define LOADCELL_SENSITIVITY 2		/* mV/V */
 #define VREFINT_CAL_ADDR     0x1FF800F8
+#define DMA_MAX_TIME         300    /* ms */
 
 ADC_HandleTypeDef hadc;
 DMA_HandleTypeDef hdma_adc;
@@ -23,8 +24,11 @@ xSemaphoreHandle ADC_conSemaphore;
 static uint16_t ADC_ReadValue[3];
 static double WeightVal;
 
-static void ADC_CreateSemaphore(void);
+static void ADC_Start();
+static void ADC_Stop();
+static void ADC_CreateSemaphore();
 static double ADC_calculateWeight(double, double);
+static void ADC_processData();
 
 void ADC_Init(void) {
 
@@ -105,19 +109,35 @@ void ADC_GPIOInit(void) {
 
 }
 
-void ADC_Start(void) {
+void ADC_startMeasurement(void)
+{
+	/* Start conversion */
+	ADC_Start();
+	/* Wait for DMA conversion */
+	if (xSemaphoreTake(ADC_conSemaphore, DMA_MAX_TIME) == pdFALSE) {
+		return;
+	}
+	/* Stop conversion */
+	ADC_Stop();
+	/* Start processing data */
+	ADC_processData();
+}
+
+static void ADC_Start(void)
+{
 	HAL_GPIO_WritePin(ADC_PWR_GPIO_Port, ADC_PWR_Pin, GPIO_PIN_SET);
 	vTaskDelay(10);
 	HAL_ADC_Start_DMA(&hadc, (uint32_t *)ADC_ReadValue, 3);
 }
 
-void ADC_Stop(void) {
+static void ADC_Stop(void)
+{
 	HAL_ADC_Stop_DMA(&hadc);
 	HAL_GPIO_WritePin(ADC_PWR_GPIO_Port, ADC_PWR_Pin, RESET);
 }
 
-void ADC_DeInit(void) {
-
+void ADC_DeInit(void)
+{
 	ADC_GPIODeInit();
 
 	HAL_ADC_DeInit(&hadc);
@@ -127,28 +147,10 @@ void ADC_GPIODeInit(void) {
 	HAL_GPIO_DeInit(ADC_PWR_GPIO_Port, ADC_PWR_Pin);
 }
 
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
-	double BatVolt, ADC_BatVolt;
-	double Vdd;
-	double ADC_WeightVolt, AmpInWeightVolt;
-	double Vrefint_data;
-	uint16_t Vrefint_cal = *((uint16_t*)VREFINT_CAL_ADDR);
-
-	if (!ADC_ReadValue[0] || (ADC_ReadValue[0] > ADC_FULL_SCALE)
-			|| !ADC_ReadValue[1] || (ADC_ReadValue[1] > ADC_FULL_SCALE)) {
-		return;
-	}
-	Vrefint_data = (double) ADC_ReadValue[2];
-	Vdd = 3.0 * (Vrefint_cal / Vrefint_data);
-
-	ADC_BatVolt = (ADC_ReadValue[1] / ADC_FULL_SCALE) * Vdd;
-	BatVolt = ADC_BatVolt * ((R37_OHM + R38_OHM) / (R38_OHM));
-	ADC_WeightVolt = (ADC_ReadValue[0] / ADC_FULL_SCALE) * Vdd;
-	AmpInWeightVolt = ADC_WeightVolt / (AMP_GAIN);
-
-	WeightVal = ADC_calculateWeight(BatVolt, AmpInWeightVolt * 1000);
-
-	ADC_Stop();
+/* DMA Conversion complete callback */
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+{
+	/* Give semaphore to processing */
 	xSemaphoreGive(ADC_conSemaphore);
 }
 
@@ -164,8 +166,34 @@ ADC_CreateSemaphore(void) {
 	}
 }
 
+static void
+ADC_processData(void)
+{
+	double BatVolt, ADC_BatVolt;
+	double Vdd;
+	double ADC_WeightVolt, AmpInWeightVolt;
+	double Vrefint_data;
+	uint16_t Vrefint_cal = *((uint16_t*)VREFINT_CAL_ADDR);
+
+	/* Are values in the range? */
+	if (!ADC_ReadValue[0] || (ADC_ReadValue[0] > ADC_FULL_SCALE)
+			|| !ADC_ReadValue[1] || (ADC_ReadValue[1] > ADC_FULL_SCALE)) {
+		return;
+	}
+	Vrefint_data = (double) ADC_ReadValue[2];
+	Vdd = 3.0 * (Vrefint_cal / Vrefint_data);
+
+	ADC_BatVolt = (ADC_ReadValue[1] / ADC_FULL_SCALE) * Vdd;
+	BatVolt = ADC_BatVolt * ((R37_OHM + R38_OHM) / (R38_OHM));
+	ADC_WeightVolt = (ADC_ReadValue[0] / ADC_FULL_SCALE) * Vdd;
+	AmpInWeightVolt = ADC_WeightVolt / (AMP_GAIN);
+
+	WeightVal = ADC_calculateWeight(BatVolt, AmpInWeightVolt * 1000);
+}
+
 static double
-ADC_calculateWeight(double batVolt, double loadCellOutputmV) {
+ADC_calculateWeight(double batVolt, double loadCellOutputmV)
+{
 	float mVolt_kg;
 
 	mVolt_kg = loadCellOutputmV * LOADCELL_MAX_SENSING;

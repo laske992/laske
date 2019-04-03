@@ -45,8 +45,6 @@
 extern PCD_HandleTypeDef hpcd_USB_FS;
 extern DMA_HandleTypeDef hdma_adc;
 extern ADC_HandleTypeDef hadc;
-extern UART_HandleTypeDef huart1;
-
 extern TIM_HandleTypeDef htim2;
 
 /******************************************************************************/
