@@ -126,7 +126,6 @@ void _setSignal(_TaskId TaskId, int32_t bit)
 static void _SIM808_SetupTask(void const * argument)
 {
 	SIM808_Init();
-
   /* USER CODE BEGIN 5 */
   /* Infinite loop */
   for(;;)
