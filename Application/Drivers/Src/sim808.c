@@ -35,13 +35,17 @@ struct number_t {
 };
 
 enum {
-	DISABLE_ECHO = 0,
-	SIM808_HANDSHAKE,
+	SIM808_SAVE_SETTINGS = 0,
+	DISABLE_ECHO,
+	SIM808_PING,
 	SIM808_CHECK_SIM,
 	SIM808_REG_HOME_NETWORK,
 	SIM808_CHECK_HOME_NETWORK,
 	PING,
 	SMS_CENTER_SET,
+	SIM808_PRESENT_ID,
+	ENTER_SLEEP_MODE,
+	EXIT_SLEEP_MODE,
 	SET_NUMBER,
 	SMS_TEXT
 };
@@ -62,11 +66,13 @@ static bool SIM808_readEEPROMNumber();
 static void SIM808_forgetNumber();
 static bool isNumberMemorized();
 static ErrorType_t SIM808_DisableEcho();
-static ErrorType_t SIM808_Handshake();
+static ErrorType_t SIM808_Ping();
 static ErrorType_t SIM808_CheckSIMCard();
 static ErrorType_t SIM808_RegHomeNetwork();
 static ErrorType_t SIM808_CheckHomeNetwork();
 static ErrorType_t SIM808_SetSMSCenter();
+static ErrorType_t SIM808_PresentCallID();
+static ErrorType_t SIM808_SleepMode(uint32_t);
 static ErrorType_t SIM808_SendAT(char *, uint8_t, uint16_t);
 static ErrorType_t SIM808_check_resp(char *, uint8_t);
 static ErrorType_t SIM808_CREG_resp(char *);
@@ -81,7 +87,10 @@ static const struct sim808_req sim808_req[] = {
 	{"AT+CREG?", "+CREG: ", SIM808_check_resp, SIM808_CREG_resp},      /* AT+CREG? */
 	{"AT+CMGF=1", "OK", SIM808_check_resp, NULL},                /* SMS Text mode */
 	{"AT+CMGF?", "+CMGF:", SIM808_check_resp, SIM808_CMGF_resp},
-	{"AT+CSCA=\"+385910401\"", "OK", SIM808_check_resp},   /* Set SMS Center */
+	{"AT+CSCA=\"+385910401\"", "OK", SIM808_check_resp, NULL},   /* Set SMS Center */
+	{"AT+CLIP=1", "OK", SIM808_check_resp, NULL},    /* Present call number */
+	{"AT+CSCLK=1", "OK", SIM808_check_resp, NULL},   /* Enter Sleep Mode */
+	{"AT+CSCLK=0", "OK", SIM808_check_resp, NULL},   /* Exit Sleep Mode */
 	{"AT+CMGS=", ">", SIM808_check_resp, NULL},                  /* Set number */
 	{NULL, NULL, NULL, NULL, NULL, NULL}                      /* SMS TEXT*/
 };
@@ -99,11 +108,12 @@ SIM808_Init(void)
 	}
 	do {
 		if ((status = SIM808_DisableEcho())) continue;
-		if ((status = SIM808_Handshake())) continue;
+		if ((status = SIM808_Ping())) continue;
 		if ((status = SIM808_CheckSIMCard())) continue;
 		if ((status = SIM808_RegHomeNetwork())) continue;
 		if ((status = SIM808_CheckHomeNetwork())) continue;
 		if ((status = SIM808_SetSMSCenter())) continue;
+		if ((status = SIM808_PresentCallID())) continue;
 		if (status == Ok) break;
 	} while (attempts--);
 	return status;
@@ -160,6 +170,17 @@ SIM808_GPIODeInit(void)
 	HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
 }
 
+void
+SIM808_wakeUp(void)
+{
+	/* Pull down DTR pin */
+	HAL_GPIO_WritePin(GPIOB, SIM_DTR_Pin, GPIO_PIN_RESET);
+
+	vTaskDelay(40);
+	SIM808_Ping();
+	SIM808_SleepMode(EXIT_SLEEP_MODE);
+}
+
 static void
 SIM808_PowerOn(void)
 {
@@ -194,9 +215,9 @@ SIM808_DisableEcho(void)
 }
 
 static ErrorType_t
-SIM808_Handshake(void)
+SIM808_Ping(void)
 {
-	return SIM808_SendAT(NULL, SIM808_HANDSHAKE, 100);
+	return SIM808_SendAT(NULL, SIM808_PING, 100);
 }
 
 static ErrorType_t
@@ -221,6 +242,18 @@ static ErrorType_t
 SIM808_SetSMSCenter(void)
 {
 	return SIM808_SendAT(NULL, SMS_CENTER_SET, 100);
+}
+
+static
+ErrorType_t SIM808_PresentCallID(void)
+{
+	return SIM808_SendAT(NULL, SIM808_PRESENT_ID, 100);
+}
+
+static
+ErrorType_t SIM808_SleepMode(uint32_t cmd)
+{
+	return SIM808_SendAT(NULL, cmd, 100);
 }
 
 static ErrorType_t
@@ -371,6 +404,7 @@ SIM808_forgetNumber(void)
 {
 	memset(&number, 0, sizeof(struct number_t));
 }
+
 ErrorType_t
 SIM808_SendSMS(char *message)
 {
