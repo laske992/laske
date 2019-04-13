@@ -270,7 +270,7 @@ void
 UART_GetData(char *data)
 {
 	/* Wait to get the answer from sim808 */
-	if (xSemaphoreTake(rxBinarySemaphore, 100) == pdFALSE) {
+	if (xSemaphoreTake(rxBinarySemaphore, 1000) == pdFALSE) {
 		return;
 	}
 	/* Get the received message */

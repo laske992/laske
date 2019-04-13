@@ -41,6 +41,7 @@ typedef enum {
 void SIM808_handleCall();
 void SIM808_GPIOInit();
 void SIM808_GPIODeInit();
+bool SIM808_RI_active();
 ErrorType_t SIM808_Init(void);
 ErrorType_t SIM808_SendSMS(char *);
 

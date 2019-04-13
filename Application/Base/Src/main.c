@@ -143,8 +143,14 @@ static void _HandleCallTask(void const * argument)
   {
 	  /* Wait interrupt on SIM_RI pin */
 	  event = osSignalWait(BIT_1, osWaitForever);
-	  if (event.value.signals == BIT_1) {
-		  SIM808_handleCall();
+	  if (event.value.signals & BIT_1)
+	  {
+		  /* Check SIM_RI after 100ms to confirm calling */
+		  vTaskDelay(100);
+		  if (SIM808_RI_active())
+		  {
+			  SIM808_handleCall();
+		  }
 	  }
   }
   vTaskDelete(CallTaskHandle);

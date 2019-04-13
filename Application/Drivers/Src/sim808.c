@@ -44,6 +44,7 @@ enum {
 	PING,
 	SMS_CENTER_SET,
 	SIM808_PRESENT_ID,
+	SIM808_HANG_UP,
 	ENTER_SLEEP_MODE,
 	EXIT_SLEEP_MODE,
 	SET_NUMBER,
@@ -72,6 +73,7 @@ static ErrorType_t SIM808_RegHomeNetwork();
 static ErrorType_t SIM808_CheckHomeNetwork();
 static ErrorType_t SIM808_SetSMSCenter();
 static ErrorType_t SIM808_PresentCallID();
+static ErrorType_t SIM808_HangUp();
 static ErrorType_t SIM808_SleepMode(uint32_t);
 static ErrorType_t SIM808_SendAT(char *, uint8_t, uint16_t);
 static ErrorType_t SIM808_check_resp(char *, uint8_t);
@@ -89,6 +91,7 @@ static const struct sim808_req sim808_req[] = {
 	{"AT+CMGF?", "+CMGF:", SIM808_check_resp, SIM808_CMGF_resp},
 	{"AT+CSCA=\"+385910401\"", "OK", SIM808_check_resp, NULL},   /* Set SMS Center */
 	{"AT+CLIP=1", "OK", SIM808_check_resp, NULL},    /* Present call number */
+	{"ATH", "OK", SIM808_check_resp, NULL},          /* Hang up current call */
 	{"AT+CSCLK=1", "OK", SIM808_check_resp, NULL},   /* Enter Sleep Mode */
 	{"AT+CSCLK=0", "OK", SIM808_check_resp, NULL},   /* Exit Sleep Mode */
 	{"AT+CMGS=", ">", SIM808_check_resp, NULL},                  /* Set number */
@@ -130,7 +133,8 @@ void
 SIM808_handleCall(char *input)
 {
 	/* Get CLIP input while RING */
-	if (SIM808_GetNumber()) {
+	if (SIM808_GetNumber())
+	{
 		/* Start Measurement task */
 		_setSignal(ADCTask, BIT_2);
 	}
@@ -168,6 +172,12 @@ SIM808_GPIODeInit(void)
 	HAL_GPIO_DeInit(SIM_RI_GPIO_Port, SIM_RI_Pin);
 
 	HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
+}
+
+bool
+SIM808_RI_active(void)
+{
+	return HAL_GPIO_ReadPin(GPIOB, SIM_DTR_Pin);
 }
 
 void
@@ -248,6 +258,12 @@ static
 ErrorType_t SIM808_PresentCallID(void)
 {
 	return SIM808_SendAT(NULL, SIM808_PRESENT_ID, 100);
+}
+
+static
+ErrorType_t SIM808_HangUp(void)
+{
+	return SIM808_SendAT(NULL, SIM808_HANG_UP, 1000);
 }
 
 static
@@ -351,13 +367,15 @@ SIM808_GetNumber(void)
 
 	UART_GetData(CLIP_resp);
 	SIM808_parseNumber(CLIP_resp, &CallNumber);
-
-	if (!isNumberMemorized()) {
+	while (SIM808_HangUp());	/* Until success */
+	if (!isNumberMemorized())
+	{
 		/* Memorize the number on first call */
 		SIM808_memorizeNumber(CallNumber);
 	}
 	/* Compare config_read number and CallNumber */
-	if (STR_COMPARE(number.num, CallNumber.num)) {
+	if (STR_COMPARE(number.num, CallNumber.num))
+	{
 		/* Unknown number */
 		return false;
 	}
@@ -434,6 +452,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   if (GPIO_Pin == SIM_RI_Pin)
   {
-
+	  _setSignal(CALLTask, BIT_1);
   }
 }
