@@ -75,29 +75,30 @@ int main(void)
 	LED_Init();
 	UART_Init();
 	SIM808_GPIOInit();
-	MX_USB_DEVICE_Init();
+//	MX_USB_DEVICE_Init();
 
 	/* Create the thread(s) */
 	/* SIM808 initial setup task */
-	osThreadDef(SIM808_SetupTask, _SIM808_SetupTask, osPriorityLow, 0, 500);
-	SIM808_SetupTaskHandle = osThreadCreate(osThread(SIM808_SetupTask), NULL);
+//	osThreadDef(SIM808_SetupTask, _SIM808_SetupTask, osPriorityLow, 0, configMINIMAL_STACK_SIZE + 300);
+//	SIM808_SetupTaskHandle = osThreadCreate(osThread(SIM808_SetupTask), NULL);
 
 	/* Incoming call handle task */
-	osThreadDef(HandleCallTask, _HandleCallTask, osPriorityHigh, 0, 500);
+	osThreadDef(HandleCallTask, _HandleCallTask, osPriorityHigh, 0, configMINIMAL_STACK_SIZE + 900);
 	CallTaskHandle = osThreadCreate(osThread(HandleCallTask), NULL);
 
-	/* Prepare and send SMS task */
-	osThreadDef(SMSTask, _SMSTask, osPriorityNormal, 0, 500);
-	SMSTaskHandle = osThreadCreate(osThread(SMSTask), NULL);
-
-	/* Measurement task */
-	osThreadDef(ADCTask, _ADCTask, osPriorityNormal, 0, 500);
-	ADCTaskHandle = osThreadCreate(osThread(ADCTask), NULL);
-
+//	/* Prepare and send SMS task */
+//	osThreadDef(SMSTask, _SMSTask, osPriorityNormal, 0, 500);
+//	SMSTaskHandle = osThreadCreate(osThread(SMSTask), NULL);
+//
+//	/* Measurement task */
+//	osThreadDef(ADCTask, _ADCTask, osPriorityNormal, 0, 500);
+//	ADCTaskHandle = osThreadCreate(osThread(ADCTask), NULL);
+//
 	/* Start scheduler */
 	osKernelStart();
 
 	for(;;);
+
 }
 
 void _setSignal(_TaskId TaskId, int32_t bit)
@@ -119,54 +120,53 @@ void _setSignal(_TaskId TaskId, int32_t bit)
 	osSignalSet(Thread, bit);
 }
 
-/* _SIM808_SetupTask function */
-static void _SIM808_SetupTask(void const * argument)
-{
-	SIM808_Init();
-  /* USER CODE BEGIN 5 */
-  /* Infinite loop */
-  for(;;)
-  {
-  }
-  vTaskDelete(SIM808_SetupTaskHandle);
-  /* USER CODE END 5 */ 
-}
+///* _SIM808_SetupTask function */
+//static void _SIM808_SetupTask(void const * argument)
+//{
+//	SIM808_Init();
+//	/* Infinite loop */
+//	for(;;)
+//	{
+////		vTaskDelay(500);
+////		LED_Toggle();
+//	}
+//	/* Should not reach this point */
+////	vTaskDelete(SIM808_SetupTaskHandle);
+//}
 
 /* Handle incoming call function */
 static void _HandleCallTask(void const * argument)
 {
 	osEvent event;
-
-  /* USER CODE BEGIN 5 */
-  /* Infinite loop */
-  for(;;)
-  {
-	  /* Wait interrupt on SIM_RI pin */
-	  event = osSignalWait(BIT_1, osWaitForever);
-	  if (event.value.signals & BIT_1)
-	  {
-		  /* Check SIM_RI after 100ms to confirm calling */
-		  vTaskDelay(100);
-		  if (SIM808_RI_active())
-		  {
-			  SIM808_handleCall();
-		  }
-	  }
-  }
-  vTaskDelete(CallTaskHandle);
-  /* USER CODE END 5 */
+	SIM808_Init();
+	for(;;)
+	{
+		/* Wait interrupt on SIM_RI pin */
+		event = osSignalWait(BIT_1, osWaitForever);
+		if (event.value.signals & BIT_1)
+		{
+			//LED_Toggle();
+			/* Check SIM_RI after 1s to confirm calling */
+			vTaskDelay(1000);
+			if (SIM808_RI_active())
+			{
+				SIM808_handleCall();
+			}
+		}
+	}
+	/* Should not reach this point */
+//	vTaskDelete(CallTaskHandle);
 }
 
 /* Prepare and send SMS function */
 static void _SMSTask(void const * argument)
 {
-  /* USER CODE BEGIN 5 */
-  /* Infinite loop */
-  for(;;)
-  {
-  }
-  vTaskDelete(SMSTaskHandle);
-  /* USER CODE END 5 */
+	/* Infinite loop */
+	for(;;)
+	{
+	}
+	/* Should not reach this point */
+//	vTaskDelete(SMSTaskHandle);
 }
 
 /* Prepare measurement data for SMS */
@@ -174,16 +174,15 @@ static void _ADCTask(void const *argument)
 {
 	osEvent event;
 
-	/* USER CODE BEGIN 5 */
-	/* Infinite loop */
 	for(;;)
+	{
 		/* Wait signal from CallHandleTask */
 		event = osSignalWait(BIT_2, osWaitForever);
-	if (event.value.signals == BIT_2) {
-		ADC_startMeasurement();
+		if (event.value.signals == BIT_2)
+		{
+			ADC_startMeasurement();
+		}
 	}
-	{
-	}
-	vTaskDelete(ADCTaskHandle);
-	/* USER CODE END 5 */
+	/* Should not reach this point */
+//	vTaskDelete(ADCTaskHandle);
 }

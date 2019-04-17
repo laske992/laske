@@ -13,11 +13,11 @@
 typedef enum {
 	LED_Off = 0,
 	LED_On = 1
-}Led_State_t;
+} Led_State_t;
 
-void LED_Init(void);
-void LED_DeInit(void);
-void LED_Set(Led_State_t LedState);
-void LED_Toggle(void);
+void LED_Init();
+void LED_DeInit();
+void LED_Set(Led_State_t);
+void LED_Toggle();
 
 #endif /* DRIVERS_INC_LED_H_ */

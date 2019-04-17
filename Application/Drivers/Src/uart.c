@@ -42,10 +42,11 @@ void UART_Init(void) {
   // Init timer
   __HAL_RCC_TIM3_CLK_ENABLE();
 
+  /* Period is 100us */
   htim3.Instance = TIM3;
-	htim3.Init.Prescaler = 31; // TODO: Postaviti na 1us
+	htim3.Init.Prescaler = (uint32_t)(SystemCoreClock / 100) - 1;
 	htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-	htim3.Init.Period = 10000;
+	htim3.Init.Period = 100 - 1;
 	htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
 	HAL_TIM_Base_Init(&htim3);
 
@@ -64,10 +65,8 @@ void UART_Init(void) {
   uartRxQueue = xQueueCreate(SIM808_BUFFER_SIZE, sizeof(rxByte));
   uartTxQueue = xQueueCreate(SIM808_BUFFER_SIZE, sizeof(rxByte));
 
-  if((uartRxQueue == NULL) || (uartTxQueue))
+  if((uartRxQueue == NULL) || (uartTxQueue == NULL))
   	Error_Handler(FreeRTOS_Error);
-
-  UART_Enable(RX_EN, TX_EN);
 }
 
 void UART_DeInit(void) {
@@ -78,9 +77,9 @@ void UART_ByteReceivedHandler(void) {
 	uint8_t rxData;
 	UART_Timer35Disable();
 	UART_GetByte(&rxData);
-	if((rxData != '\r') && (rxData != '\n') && (rxData != '\0'))
+	if (rxData > 31 && rxData < 127)
+//	if((rxData != '\r') && (rxData != '\n') && (rxData != '\0'))
 		UART_RxQeuePutByte(rxData);
-
 	UART_Timer35Enable();
 }
 void UART_TransmissionCompleteHandler(void) {
@@ -282,8 +281,7 @@ UART_Send(uint8_t *data, uint16_t timeout,
 		uint8_t req_id, SIM808_checkResp *cb)
 {
 	ErrorType_t status = Ok;
-	char sim808reply[SIM808_BUFFER_SIZE];
-
+	char sim808reply[SIM808_BUFFER_SIZE] = {0};
 	/* Take mutex first */
 	if(UART_TakeMutex(timeout) != Ok) {
 		return UART_Error;

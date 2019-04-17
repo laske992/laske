@@ -23,6 +23,7 @@
 #include "task.h"
 #include "util.h"
 #include "storage.h"
+#include "led.h"
 
 typedef enum {
 	NOT_REGISTERED = 0,

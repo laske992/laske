@@ -32,7 +32,7 @@ struct sim808_req {
 struct number_t {
 	num_type_t type;
 	char num[MAX_NUM_SIZE];
-};
+} __attribute__((__packed__));
 
 enum {
 	SIM808_SAVE_SETTINGS = 0,
@@ -41,7 +41,8 @@ enum {
 	SIM808_CHECK_SIM,
 	SIM808_REG_HOME_NETWORK,
 	SIM808_CHECK_HOME_NETWORK,
-	PING,
+	SET_SMS_FORMAT,
+	CHECK_SMS_FORMAT,
 	SMS_CENTER_SET,
 	SIM808_PRESENT_ID,
 	SIM808_HANG_UP,
@@ -72,6 +73,7 @@ static ErrorType_t SIM808_CheckSIMCard();
 static ErrorType_t SIM808_RegHomeNetwork();
 static ErrorType_t SIM808_CheckHomeNetwork();
 static ErrorType_t SIM808_SetSMSCenter();
+static ErrorType_t SIM808_SetTextMode();
 static ErrorType_t SIM808_PresentCallID();
 static ErrorType_t SIM808_HangUp();
 static ErrorType_t SIM808_SleepMode(uint32_t);
@@ -89,7 +91,7 @@ static const struct sim808_req sim808_req[] = {
 	{"AT+CREG?", "+CREG: ", SIM808_check_resp, SIM808_CREG_resp},      /* AT+CREG? */
 	{"AT+CMGF=1", "OK", SIM808_check_resp, NULL},                /* SMS Text mode */
 	{"AT+CMGF?", "+CMGF:", SIM808_check_resp, SIM808_CMGF_resp},
-	{"AT+CSCA=\"+385910401\"", "OK", SIM808_check_resp, NULL},   /* Set SMS Center */
+	{"AT+CSCA=", "OK", SIM808_check_resp, NULL},   /* Set SMS Center */
 	{"AT+CLIP=1", "OK", SIM808_check_resp, NULL},    /* Present call number */
 	{"ATH", "OK", SIM808_check_resp, NULL},          /* Hang up current call */
 	{"AT+CSCLK=1", "OK", SIM808_check_resp, NULL},   /* Enter Sleep Mode */
@@ -103,19 +105,22 @@ ErrorType_t
 SIM808_Init(void)
 {
 	ErrorType_t status = Ok;
-	uint8_t attempts = 5;
-
+	uint8_t attempts = 10;
+	UART_Enable(RX_EN, TX_EN);
+	HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 	SIM808_PowerOn();
-	if (!(numberMemorized = SIM808_readEEPROMNumber())) {
-		SIM808_forgetNumber();
-	}
+//	if (!(numberMemorized = SIM808_readEEPROMNumber())) {
+//		SIM808_forgetNumber();
+//	}
 	do {
+		vTaskDelay(40);
 		if ((status = SIM808_DisableEcho())) continue;
 		if ((status = SIM808_Ping())) continue;
-		if ((status = SIM808_CheckSIMCard())) continue;
-		if ((status = SIM808_RegHomeNetwork())) continue;
-		if ((status = SIM808_CheckHomeNetwork())) continue;
+//		if ((status = SIM808_CheckSIMCard())) continue;
+//		if ((status = SIM808_RegHomeNetwork())) continue;
+//		if ((status = SIM808_CheckHomeNetwork())) continue;
 		if ((status = SIM808_SetSMSCenter())) continue;
+		if ((status = SIM808_SetTextMode())) continue;
 		if ((status = SIM808_PresentCallID())) continue;
 		if (status == Ok) break;
 	} while (attempts--);
@@ -135,6 +140,7 @@ SIM808_handleCall(char *input)
 	/* Get CLIP input while RING */
 	if (SIM808_GetNumber())
 	{
+		SIM808_SendSMS("Hello World!");
 		/* Start Measurement task */
 		_setSignal(ADCTask, BIT_2);
 	}
@@ -155,14 +161,16 @@ SIM808_GPIOInit(void)
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
+	/* Prepare Init Struct for next pin */
+	memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitTypeDef));
+
 	/*Configure GPIO pin : SIM_RI_Pin */
 	GPIO_InitStruct.Pin = SIM_RI_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+	GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	HAL_GPIO_Init(SIM_RI_GPIO_Port, &GPIO_InitStruct);
 
-	HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
-	HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+	HAL_NVIC_SetPriority(EXTI15_10_IRQn, 2, 0);
 }
 
 void
@@ -173,11 +181,13 @@ SIM808_GPIODeInit(void)
 
 	HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
 }
-
+/*
+ * @brief: return true if pin is RESET.
+ */
 bool
 SIM808_RI_active(void)
 {
-	return HAL_GPIO_ReadPin(GPIOB, SIM_DTR_Pin);
+	return !HAL_GPIO_ReadPin(GPIOB, SIM_DTR_Pin);
 }
 
 void
@@ -203,7 +213,7 @@ SIM808_PowerOn(void)
 static ErrorType_t
 SIM808_SendAT(char *msg, uint8_t req_id, uint16_t timeout)
 {
-	char data[256];
+	char data[256] = {0};
 	char *p = data;
 	if (req_id > MAXCOUNT(sim808_req)) {
 		return SIM808_Error;
@@ -211,9 +221,10 @@ SIM808_SendAT(char *msg, uint8_t req_id, uint16_t timeout)
 	const struct sim808_req *req = &sim808_req[req_id];
 	PUT_DATA(p, req->cmd);
 	PUT_DATA(p, msg);
-	PUT_DATA(p, SIM808_ENTER);  /* \r\n to send AT command */
 	if (req_id == SMS_TEXT) {
 		PUT_BYTE(p, SEND_SMS);  /* CTRL + Z to send SMS */
+	} else {
+		PUT_DATA(p, SIM808_ENTER);
 	}
 	return UART_Send((uint8_t *)data, timeout, req_id, req->cb);
 }
@@ -251,7 +262,13 @@ SIM808_CheckHomeNetwork(void)
 static ErrorType_t
 SIM808_SetSMSCenter(void)
 {
-	return SIM808_SendAT(NULL, SMS_CENTER_SET, 100);
+	return SIM808_SendAT("\"+385910401\"", SMS_CENTER_SET, 100);
+}
+
+static ErrorType_t
+SIM808_SetTextMode(void)
+{
+	return SIM808_SendAT(NULL, SET_SMS_FORMAT, 100);
 }
 
 static
@@ -367,11 +384,14 @@ SIM808_GetNumber(void)
 
 	UART_GetData(CLIP_resp);
 	SIM808_parseNumber(CLIP_resp, &CallNumber);
-	while (SIM808_HangUp());	/* Until success */
+	while (SIM808_HangUp())
+	{
+		vTaskDelay(40); /* Until success */
+	}
 	if (!isNumberMemorized())
 	{
 		/* Memorize the number on first call */
-		SIM808_memorizeNumber(CallNumber);
+		SIM808_memorizeNumber(&CallNumber);
 	}
 	/* Compare config_read number and CallNumber */
 	if (STR_COMPARE(number.num, CallNumber.num))
@@ -389,11 +409,11 @@ SIM808_memorizeNumber(struct number_t *num)
 	if (isNumberMemorized()) {
 		return;
 	}
-	if (!storage_write((void *)num, STORAGE_NUMBER_ADDR, sizeof(struct number_t))) {
-		/* Write failed */
-		return;
-	}
-	memmove(&number, num, sizeof(struct number_t));
+//	if (!storage_write((void *)num, STORAGE_NUMBER_ADDR, sizeof(struct number_t))) {
+//		/* Write failed */
+//		return;
+//	}
+	memcpy(&number, num, sizeof(struct number_t));
 	numberMemorized = true;
 }
 
@@ -427,10 +447,11 @@ ErrorType_t
 SIM808_SendSMS(char *message)
 {
 	ErrorType_t status = Ok;
-	if ((status = SIM808_SendAT(number.num, SET_NUMBER, 200))) {
-		return status;
+	if ((status = SIM808_SendAT(number.num, SET_NUMBER, 1000))) {
+		vTaskDelay(100);
+		//return status;
 	}
-	vTaskDelay(1000);
+	vTaskDelay(3000);
 	if ((status = SIM808_SendAT(message, SMS_TEXT, 1000))) {
 		return status;
 	}
