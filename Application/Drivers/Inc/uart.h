@@ -11,7 +11,7 @@
 #include "config.h"
 #include "util.h"
 
-#define UART_TIMEOUT_MS					500
+#define UART_TIMEOUT_MS				500
 #define UART_TRANS_TIMEOUT_MS		100
 #define SIM808_BUFFER_SIZE			1024
 

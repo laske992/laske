@@ -15,6 +15,7 @@
 #define BIT_0	( 1 << 0 )
 #define BIT_1	( 1 << 1 )
 #define BIT_2	( 1 << 2 )
+#define MAX_AT_CMD_LEN 558  /* AT + 556 cmd chars */
 
 #define PUT_BYTE(p, byte) \
 	*(p) = (byte); (p)++

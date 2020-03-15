@@ -23,13 +23,13 @@ static void UART_TxQueueFill(uint8_t *);
 static void UART_RxDeQueue(char *);
 static uint8_t UART_TxQueueGetByteFromISR(uint8_t *);
 static uint8_t UART_TxQueueGetByte();
-static void UART_TxQueuePutByte(uint8_t);
-static void UART_RxQeuePutByte(uint8_t);
-static uint8_t UART_RxQueueGetByte();
+static void UART_TxQueuePush(uint8_t);
+static void UART_RxQueuePush(uint8_t);
+static uint8_t UART_RxQueuePop();
 static void UART_PutByte(uint8_t);
 static void UART_GetByte(uint8_t *);
-static void UART_Timer35Enable();
-static void UART_Timer35Disable();
+static void UART_Timer35Start();
+static void UART_Timer35Stop();
 static ErrorType_t UART_TakeMutex(uint16_t);
 static void UART_GiveMutex();
 
@@ -82,7 +82,7 @@ UART_Init(void)
         Error_Handler(FreeRTOS_Error);
     }
     uartRxQueue = xQueueCreate(SIM808_BUFFER_SIZE, sizeof(rxByte));
-    uartTxQueue = xQueueCreate(SIM808_BUFFER_SIZE, sizeof(rxByte));
+    uartTxQueue = xQueueCreate(MAX_AT_CMD_LEN, sizeof(rxByte));
 
     if ((uartRxQueue == NULL) || (uartTxQueue == NULL))
     {
@@ -129,7 +129,7 @@ void UART_Enable (uint8_t xRxEnable, uint8_t xTxEnable)
 }
 
 ErrorType_t
-UART_Send(uint8_t *data, uint16_t timeout, uint8_t req_id, SIM808_checkResp *cb)
+UART_Send(uint8_t *data, uint16_t timeout, uint8_t req_id, SIM808_checkResp *callback)
 {
     ErrorType_t status = Ok;
     char sim808reply[SIM808_BUFFER_SIZE] = {0};
@@ -153,11 +153,11 @@ UART_Send(uint8_t *data, uint16_t timeout, uint8_t req_id, SIM808_checkResp *cb)
         UART_GiveMutex();
         return UART_Error;
     }
-    if (cb)
+    if (callback)
     {
-        /* Parse replay */
+        /* Parse reply */
         UART_GetData(sim808reply);
-        status = cb(sim808reply, req_id);
+        status = callback(sim808reply, req_id);
     }
     UART_GiveMutex();
     return status;
@@ -181,14 +181,14 @@ UART_ByteReceivedHandler(void)
     uint8_t rxData;
     /* Clear Receive data register not empty flag */
     __HAL_UART_CLEAR_FLAG(&huart1, UART_FLAG_RXNE);
-    UART_Timer35Disable();
+    UART_Timer35Stop();
     UART_GetByte(&rxData);
     if (rxData > 31 && rxData < 127)
     {
         //	if((rxData != '\r') && (rxData != '\n') && (rxData != '\0'))
-        UART_RxQeuePutByte(rxData);
+        UART_RxQueuePush(rxData);
     }
-    UART_Timer35Enable();
+    UART_Timer35Start();
 }
 
 static void
@@ -197,16 +197,16 @@ UART_TransmissionCompleteHandler(void)
     uint8_t byteToSend;
     /* Clear Transmission Complete flag */
     __HAL_UART_CLEAR_FLAG(&huart1, UART_FLAG_TC);
-    if(UART_TxQueueGetByteFromISR(&byteToSend))
+    if (UART_TxQueueGetByteFromISR(&byteToSend))
     {
         UART_PutByte(byteToSend);
     }
     else
     {
-        // Tx queue empty
+        /* Tx queue empty */
         BaseType_t xTaskWokenByReceive = pdFALSE;
         xSemaphoreGiveFromISR(txBinarySemaphore, &xTaskWokenByReceive);
-        if(xTaskWokenByReceive != pdFALSE)
+        if (xTaskWokenByReceive != pdFALSE)
         {
             taskYIELD ();
         }
@@ -267,15 +267,16 @@ UART_TxQueueFill(uint8_t *data)
     uint16_t txSize = strlen((char *)data);
     for(i = 0; i < txSize; i++)
     {
-        UART_TxQueuePutByte(data[i]);
+        UART_TxQueuePush(data[i]);
     }
 }
 
 static void
 UART_RxDeQueue(char *data)
 {
-    while (uxQueueMessagesWaiting(uartRxQueue) > 0) {
-        PUT_BYTE(data, UART_RxQueueGetByte());
+    while (uxQueueMessagesWaiting(uartRxQueue) > 0)
+    {
+        PUT_BYTE(data, UART_RxQueuePop());
     }
 }
 
@@ -288,7 +289,7 @@ UART_TxQueueGetByteFromISR(uint8_t *data)
     {
         return 0;
     }
-    if(xTaskWokenByReceive != pdFALSE)
+    if (xTaskWokenByReceive != pdFALSE)
     {
         taskYIELD();
     }
@@ -304,13 +305,14 @@ UART_TxQueueGetByte(void)
 }
 
 static void
-UART_TxQueuePutByte(uint8_t data)
+UART_TxQueuePush(uint8_t data)
 {
-    xQueueSend(uartTxQueue, &data, 10);
+    /* Do not block if queue is already full */
+    xQueueSend(uartTxQueue, &data, 0);
 }
 
 static void
-UART_RxQeuePutByte(uint8_t data)
+UART_RxQueuePush(uint8_t data)
 {
     BaseType_t xTaskWokenByReceive = pdFALSE;
     xQueueSendFromISR(uartRxQueue, &data, &xTaskWokenByReceive);
@@ -321,7 +323,7 @@ UART_RxQeuePutByte(uint8_t data)
 }
 
 static uint8_t
-UART_RxQueueGetByte(void)
+UART_RxQueuePop(void)
 {
     uint8_t data;
     xQueueReceive(uartRxQueue, &data, 10);
@@ -341,10 +343,10 @@ UART_GetByte(uint8_t *pucByte)
 }
 
 /*
- * @brief: Start UART timer.
+ * @brief: Start UART timer to be able to identify end of received message.
  */
 static void
-UART_Timer35Enable(void)
+UART_Timer35Start(void)
 {
     htim3.Instance->CNT = 0;
     HAL_TIM_Base_Start_IT(&htim3);
@@ -354,7 +356,7 @@ UART_Timer35Enable(void)
  * @brief: Stop UART timer.
  */
 static void
-UART_Timer35Disable(void)
+UART_Timer35Stop(void)
 {
     HAL_TIM_Base_Stop_IT(&htim3);
 }
@@ -422,6 +424,10 @@ void USART1_IRQHandler(void)
     }
 }
 
+/*
+ * Triggers when Timer expired from last received byte.
+ * End of received frame.
+ */
 void
 TIM3_IRQHandler(void)
 {
@@ -433,6 +439,7 @@ TIM3_IRQHandler(void)
 
     BaseType_t xTaskWokenByReceive = pdFALSE;
 
+    /* Give semaphore */
     xSemaphoreGiveFromISR(rxBinarySemaphore, &xTaskWokenByReceive);
     if (xTaskWokenByReceive != pdFALSE)
     {
