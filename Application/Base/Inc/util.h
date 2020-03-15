@@ -1,7 +1,7 @@
 /*
  * util.h
  *
- *  Created on: 30. ožu 2019.
+ *  Created on: Mar 30 2019.
  *      Author: User
  */
 
@@ -10,14 +10,11 @@
 
 #include <string.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #define BIT_0	( 1 << 0 )
 #define BIT_1	( 1 << 1 )
 #define BIT_2	( 1 << 2 )
-
-#define PUT_DATA(p, d) \
-	strncpy((char *)(p), (const char *)(d), strlen((char *)(d))); \
-	(p) += strlen((char *)(d))
 
 #define PUT_BYTE(p, byte) \
 	*(p) = (byte); (p)++
@@ -37,5 +34,6 @@ typedef enum {
 } _TaskId;
 
 void _setSignal(_TaskId, int32_t);
+int put_data(char **, const char *, int);
 
 #endif /* BASE_INC_UTIL_H_ */

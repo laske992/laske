@@ -8,6 +8,7 @@
 #include "sim808.h"
 
 /* Private define ------------------------------------------------------------*/
+#define MAX_AT_CMD_LEN 558  /* AT + 556 cmd chars */
 #define MAX_NUM_SIZE 30
 #define NUM_TYPE_SIZE 3
 #define SIM808_ENTER ("\r\n")
@@ -77,7 +78,7 @@ static ErrorType_t SIM808_SetTextMode();
 static ErrorType_t SIM808_PresentCallID();
 static ErrorType_t SIM808_HangUp();
 static ErrorType_t SIM808_SleepMode(uint32_t);
-static ErrorType_t SIM808_SendAT(char *, uint8_t, uint16_t);
+static ErrorType_t SIM808_SendAT(const char *, uint8_t, uint16_t);
 static ErrorType_t SIM808_check_resp(char *, uint8_t);
 static ErrorType_t SIM808_CREG_resp(char *);
 static ErrorType_t SIM808_CMGF_resp(char *);
@@ -97,7 +98,7 @@ static const struct sim808_req sim808_req[] = {
 	{"AT+CSCLK=1", "OK", SIM808_check_resp, NULL},   /* Enter Sleep Mode */
 	{"AT+CSCLK=0", "OK", SIM808_check_resp, NULL},   /* Exit Sleep Mode */
 	{"AT+CMGS=", ">", SIM808_check_resp, NULL},                  /* Set number */
-	{NULL, NULL, NULL, NULL, NULL, NULL}                      /* SMS TEXT*/
+	{NULL, NULL, NULL, NULL}                      /* SMS TEXT*/
 };
 
 
@@ -211,22 +212,49 @@ SIM808_PowerOn(void)
 }
 
 static ErrorType_t
-SIM808_SendAT(char *msg, uint8_t req_id, uint16_t timeout)
+SIM808_SendAT(const char *msg, uint8_t req_id, uint16_t timeout)
 {
-	char data[256] = {0};
-	char *p = data;
-	if (req_id > MAXCOUNT(sim808_req)) {
-		return SIM808_Error;
-	}
-	const struct sim808_req *req = &sim808_req[req_id];
-	PUT_DATA(p, req->cmd);
-	PUT_DATA(p, msg);
-	if (req_id == SMS_TEXT) {
-		PUT_BYTE(p, SEND_SMS);  /* CTRL + Z to send SMS */
-	} else {
-		PUT_DATA(p, SIM808_ENTER);
-	}
-	return UART_Send((uint8_t *)data, timeout, req_id, req->cb);
+    const struct sim808_req *req = &sim808_req[req_id];
+    char at_cmd[MAX_AT_CMD_LEN + 1] = {0};
+    char *p = at_cmd;
+    int nchars = 0;
+    int maxlen = MAX_AT_CMD_LEN;
+
+    if (req_id > MAXCOUNT(sim808_req))
+    {
+        return SIM808_Error;
+    }
+    if (req->cmd != NULL)
+    {
+        /* Prepare AT command */
+        nchars = put_data(&p, req->cmd, maxlen);
+        maxlen -= nchars;
+    }
+    if (msg != NULL)
+    {
+        /* Prepare additional AT command data */
+        nchars = put_data(&p, msg, maxlen);
+        maxlen -= nchars;
+    }
+    if (req_id == SMS_TEXT)
+    {
+        /* If SMS should be sent assure that there is enough space */
+        if (maxlen < 1)
+        {
+            return SIM808_Error;
+        }
+        PUT_BYTE(p, SEND_SMS);  /* CTRL + Z to send SMS */
+    }
+    else
+    {
+        /* If any other command should be sent assure that there is enough space */
+        if (maxlen < 2)
+        {
+            return SIM808_Error;
+        }
+        nchars = put_data(&p, SIM808_ENTER, 2);
+    }
+    return UART_Send((uint8_t *)at_cmd, timeout, req_id, req->cb);
 }
 
 static ErrorType_t
