@@ -123,6 +123,7 @@ SIM808_Init(void)
         if ((status = SIM808_PresentCallID())) continue;
         if (status == Ok) break;
     } while (attempts--);
+    DEBUG_INFO("SIM808 initiated! %d", attempts);
     return status;
 }
 
@@ -258,12 +259,14 @@ SIM808_SendAT(const char *msg, uint8_t req_id, uint16_t timeout)
 static ErrorType_t
 SIM808_DisableEcho(void)
 {
+    DEBUG_INFO("Disabling echo...");
     return SIM808_SendAT(NULL, DISABLE_ECHO, 100);
 }
 
 static ErrorType_t
 SIM808_Ping(void)
 {
+    DEBUG_INFO("Checking communication...");
     return SIM808_SendAT(NULL, SIM808_PING, 100);
 }
 
@@ -288,12 +291,14 @@ SIM808_CheckHomeNetwork(void)
 static ErrorType_t
 SIM808_SetSMSCenter(void)
 {
+    DEBUG_INFO("Setting SMS center: \"+385910401\"");
     return SIM808_SendAT("\"+385910401\"", SMS_CENTER_SET, 100);
 }
 
 static ErrorType_t
 SIM808_SetTextMode(void)
 {
+    DEBUG_INFO("Setting SMS mode to txt.");
     return SIM808_SendAT(NULL, SET_SMS_FORMAT, 100);
 }
 

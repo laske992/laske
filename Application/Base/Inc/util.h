@@ -11,6 +11,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include "stm32l1xx_hal.h"
 
 #define BIT_0	( 1 << 0 )
 #define BIT_1	( 1 << 1 )
@@ -33,6 +34,11 @@ typedef enum {
 	ADCTask,
 	SMSTask
 } _TaskId;
+
+void debug_init();
+void debug_printf(const char *fmt, ...);
+#define DEBUG_INFO(s, ...) debug_printf("[%08d]%s:%d:%s(): [INFO] " s "\r\n", HAL_GetTick(), __FILE__, __LINE__, __func__, ##__VA_ARGS__)
+#define DEBUG_ERROR(s, ...) debug_printf("[%08d]%s:%d:%s(): [ERROR] " s "\r\n", HAL_GetTick(), __FILE__, __LINE__, __func__, ##__VA_ARGS__)
 
 void _setSignal(_TaskId, int32_t);
 int put_data(char **, const char *, int);

@@ -4,7 +4,40 @@
  *  Created on: Mar 15, 2020
  *      Author: ivan
  */
+#include <stdio.h>
+#include <stdarg.h>
+#include <string.h>
 #include "util.h"
+#include "communication.h"
+#include "usb_device.h"
+
+static void
+vprint(const char *fmt, va_list argp)
+{
+    char buf[512] = {0};
+    int len;
+    len = vsprintf(buf, fmt, argp);
+    if (len > 0)
+    {
+        CDC_Transmit_FS(buf, strlen(buf));
+    }
+}
+
+void
+debug_init(void)
+{
+    MX_USB_DEVICE_Init();
+    communicationInit();
+}
+
+void
+debug_printf(const char *fmt, ...)
+{
+    va_list argp;
+    va_start(argp, fmt);
+    vprint(fmt, argp);
+    va_end(argp);
+}
 
 /*
  * Copy at most maxlen chars from src to dest.

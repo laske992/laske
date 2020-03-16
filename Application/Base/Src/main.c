@@ -48,9 +48,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "config.h"
-#include "stm32l1xx_hal.h"
 #include "cmsis_os.h"
-#include "usb_device.h"
 #include "led.h"
 #include "power.h"
 #include "adc.h"
@@ -75,7 +73,7 @@ int main(void)
 	LED_Init();
 	UART_Init();
 	SIM808_GPIOInit();
-//	MX_USB_DEVICE_Init();
+	debug_init();
 
 	/* Create the thread(s) */
 	/* SIM808 initial setup task */
