@@ -53,24 +53,6 @@ enum {
 };
 
 /* Private variables ---------------------------------------------------------*/
-static const struct sim808_req sim808_req[] = {
-        {"AT&W", "OK", SIM808_check_resp, NULL},
-        {"ATE0", "OK", SIM808_check_resp, NULL},     /* ATE0 */
-        {"AT", "OK", SIM808_check_resp, NULL},        /* AT */
-        {"AT+CCID=?", "OK", SIM808_check_resp, NULL},        /* AT+CCID=? */
-        {"AT+CREG=1", "OK", SIM808_check_resp, NULL},     /* AT+CREG=1 */
-        {"AT+CREG?", "+CREG: ", SIM808_check_resp, SIM808_CREG_resp},      /* AT+CREG? */
-        {"AT+CMGF=1", "OK", SIM808_check_resp, NULL},                /* SMS Text mode */
-        {"AT+CMGF?", "+CMGF:", SIM808_check_resp, SIM808_CMGF_resp},
-        {"AT+CSCA=", "OK", SIM808_check_resp, NULL},   /* Set SMS Center */
-        {"AT+CLIP=1", "OK", SIM808_check_resp, NULL},    /* Present call number */
-        {"ATH", "OK", SIM808_check_resp, NULL},          /* Hang up current call */
-        {"AT+CSCLK=1", "OK", SIM808_check_resp, NULL},   /* Enter Sleep Mode */
-        {"AT+CSCLK=0", "OK", SIM808_check_resp, NULL},   /* Exit Sleep Mode */
-        {"AT+CMGS=", ">", SIM808_check_resp, NULL},                  /* Set number */
-        {NULL, NULL, NULL, NULL}                      /* SMS TEXT*/
-};
-
 xQueueHandle inputQueue;
 xTaskHandle  recieveTaskHandle;
 xSemaphoreHandle CDCMutex;
@@ -99,6 +81,24 @@ static ErrorType_t SIM808_SendAT(const char *, uint8_t, uint16_t);
 static ErrorType_t SIM808_check_resp(char *, uint8_t);
 static ErrorType_t SIM808_CREG_resp(char *);
 static ErrorType_t SIM808_CMGF_resp(char *);
+
+static const struct sim808_req sim808_req[] = {
+        {"AT&W", "OK", SIM808_check_resp, NULL},
+        {"ATE0", "OK", SIM808_check_resp, NULL},     /* ATE0 */
+        {"AT", "OK", SIM808_check_resp, NULL},        /* AT */
+        {"AT+CCID=?", "OK", SIM808_check_resp, NULL},        /* AT+CCID=? */
+        {"AT+CREG=1", "OK", SIM808_check_resp, NULL},     /* AT+CREG=1 */
+        {"AT+CREG?", "+CREG: ", SIM808_check_resp, SIM808_CREG_resp},      /* AT+CREG? */
+        {"AT+CMGF=1", "OK", SIM808_check_resp, NULL},                /* SMS Text mode */
+        {"AT+CMGF?", "+CMGF:", SIM808_check_resp, SIM808_CMGF_resp},
+        {"AT+CSCA=", "OK", SIM808_check_resp, NULL},   /* Set SMS Center */
+        {"AT+CLIP=1", "OK", SIM808_check_resp, NULL},    /* Present call number */
+        {"ATH", "OK", SIM808_check_resp, NULL},          /* Hang up current call */
+        {"AT+CSCLK=1", "OK", SIM808_check_resp, NULL},   /* Enter Sleep Mode */
+        {"AT+CSCLK=0", "OK", SIM808_check_resp, NULL},   /* Exit Sleep Mode */
+        {"AT+CMGS=", ">", SIM808_check_resp, NULL},                  /* Set number */
+        {NULL, NULL, NULL, NULL}                      /* SMS TEXT*/
+};
 
 ErrorType_t
 SIM808_Init(void)
