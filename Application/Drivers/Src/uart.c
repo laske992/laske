@@ -68,7 +68,7 @@ UART_Init(void)
     htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     HAL_TIM_Base_Init(&htim3);
 
-    HAL_NVIC_SetPriority(TIM3_IRQn, 5, 0);
+    HAL_NVIC_SetPriority(TIM3_IRQn, 7, 0);
     HAL_NVIC_EnableIRQ(TIM3_IRQn);
 
     // Init mutex semaphore
@@ -157,6 +157,7 @@ UART_Send(uint8_t *data, uint16_t timeout, uint8_t req_id, SIM808_checkResp *cal
     {
         /* Parse reply */
         UART_GetData(sim808reply);
+        debug_printf("Received: %s\r\n", sim808reply);
         status = callback(sim808reply, req_id);
     }
     UART_GiveMutex();
@@ -175,6 +176,15 @@ UART_GetData(char *data)
     UART_RxDeQueue(data);
 }
 
+void
+UART_FlushQueues(void)
+{
+    if ((xSemaphoreTake(rxBinarySemaphore, 0) == pdTRUE))
+    {
+        UART_QueueReset();
+    }
+}
+
 static void
 UART_ByteReceivedHandler(void)
 {
@@ -183,9 +193,8 @@ UART_ByteReceivedHandler(void)
     __HAL_UART_CLEAR_FLAG(&huart1, UART_FLAG_RXNE);
     UART_Timer35Stop();
     UART_GetByte(&rxData);
-    if (rxData > 31 && rxData < 127)
+    if ((rxData != '\r') && (rxData != '\n') && (rxData != '\0'))
     {
-        //	if((rxData != '\r') && (rxData != '\n') && (rxData != '\0'))
         UART_RxQueuePush(rxData);
     }
     UART_Timer35Start();

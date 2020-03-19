@@ -13,8 +13,8 @@
 #include <stdint.h>
 #include "stm32l1xx_hal.h"
 
-#define BIT_0	( 1 << 0 )
-#define BIT_1	( 1 << 1 )
+#define SIM_RI_IRQ_SMS	( 1 << 0 )
+#define SIM_RI_IRQ_CALL	( 1 << 1 )
 #define BIT_2	( 1 << 2 )
 #define MAX_AT_CMD_LEN 558  /* AT + 556 cmd chars */
 
@@ -37,8 +37,8 @@ typedef enum {
 
 void debug_init();
 void debug_printf(const char *fmt, ...);
-#define DEBUG_INFO(s, ...) debug_printf("[%08d]%s:%d:%s(): [INFO] " s "\r\n", HAL_GetTick(), __FILE__, __LINE__, __func__, ##__VA_ARGS__)
-#define DEBUG_ERROR(s, ...) debug_printf("[%08d]%s:%d:%s(): [ERROR] " s "\r\n", HAL_GetTick(), __FILE__, __LINE__, __func__, ##__VA_ARGS__)
+#define DEBUG_INFO(s, ...) debug_printf("[INFO][%08d]%s:%d:%s(): " s "\r\n", HAL_GetTick(), __FILE__, __LINE__, __func__, ##__VA_ARGS__)
+#define DEBUG_ERROR(s, ...) debug_printf("[ERROR][%08d]%s:%d:%s(): " s "\r\n", HAL_GetTick(), __FILE__, __LINE__, __func__, ##__VA_ARGS__)
 
 void _setSignal(_TaskId, int32_t);
 int put_data(char **, const char *, int);

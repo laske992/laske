@@ -4,7 +4,8 @@
  *  Created on: Sep 1, 2018
  *      Author: Mislav
  */
-#include "usb.h"
+#include "config.h"
+#include "usb_device.h"
 
 void USB_Init(void) {
 	USB_GPIOInit();

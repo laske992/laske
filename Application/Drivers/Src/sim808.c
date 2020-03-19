@@ -53,20 +53,26 @@ enum {
 };
 
 /* Private variables ---------------------------------------------------------*/
+TIM_HandleTypeDef htim4;
 xQueueHandle inputQueue;
 xTaskHandle  recieveTaskHandle;
 xSemaphoreHandle CDCMutex;
 bool numberMemorized;
 struct number_t number;
 
+uint32_t down_ticks;
+uint32_t up_ticks;
+uint32_t tim4_ticks;
+
 /* Private function prototypes -----------------------------------------------*/
 static void SIM808_PowerOn();
 static bool SIM808_GetNumber();
-static void SIM808_parseNumber(char *, struct number_t *);
+static ErrorType_t SIM808_parseNumber(char *, struct number_t *);
 static void SIM808_memorizeNumber();
 static bool SIM808_readEEPROMNumber();
 static void SIM808_forgetNumber();
 static bool isNumberMemorized();
+static ErrorType_t SIM808_Flush_out();
 static ErrorType_t SIM808_DisableEcho();
 static ErrorType_t SIM808_Ping();
 static ErrorType_t SIM808_CheckSIMCard();
@@ -81,6 +87,9 @@ static ErrorType_t SIM808_SendAT(const char *, uint8_t, uint16_t);
 static ErrorType_t SIM808_check_resp(char *, uint8_t);
 static ErrorType_t SIM808_CREG_resp(char *);
 static ErrorType_t SIM808_CMGF_resp(char *);
+static void SIM808_Timer4Start();
+static void SIM808_Timer4Stop();
+static void SIM808_EnableIRQs();
 
 static const struct sim808_req sim808_req[] = {
         {"AT&W", "OK", SIM808_check_resp, NULL},
@@ -104,9 +113,8 @@ ErrorType_t
 SIM808_Init(void)
 {
     ErrorType_t status = Ok;
-    uint8_t attempts = 10;
+    int8_t attempts = 3;
     UART_Enable(RX_EN, TX_EN);
-    HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
     SIM808_PowerOn();
     //	if (!(numberMemorized = SIM808_readEEPROMNumber())) {
     //		SIM808_forgetNumber();
@@ -114,16 +122,24 @@ SIM808_Init(void)
     do {
         vTaskDelay(40);
         if ((status = SIM808_DisableEcho())) continue;
-        if ((status = SIM808_Ping())) continue;
-        //		if ((status = SIM808_CheckSIMCard())) continue;
-        //		if ((status = SIM808_RegHomeNetwork())) continue;
-        //		if ((status = SIM808_CheckHomeNetwork())) continue;
+        if ((status = SIM808_Flush_out())) continue;
+        if ((status = SIM808_CheckSIMCard())) continue;
+        if ((status = SIM808_RegHomeNetwork())) continue;
+        if ((status = SIM808_CheckHomeNetwork())) continue;
         if ((status = SIM808_SetSMSCenter())) continue;
         if ((status = SIM808_SetTextMode())) continue;
         if ((status = SIM808_PresentCallID())) continue;
         if (status == Ok) break;
     } while (attempts--);
-    DEBUG_INFO("SIM808 initiated! %d", attempts);
+    if (attempts < 0)
+    {
+        DEBUG_ERROR("SIM808 not initiated!");
+        assert_param(0);
+    } else
+    {
+        DEBUG_INFO("SIM808 initiated!");
+        SIM808_EnableIRQs();
+    }
     return status;
 }
 
@@ -140,7 +156,7 @@ SIM808_handleCall(char *input)
     /* Get CLIP input while RING */
     if (SIM808_GetNumber())
     {
-        SIM808_SendSMS("Hello World!");
+        //SIM808_SendSMS("Hello World!");
         /* Start Measurement task */
         _setSignal(ADCTask, BIT_2);
     }
@@ -152,10 +168,10 @@ SIM808_GPIOInit(void)
     GPIO_InitTypeDef GPIO_InitStruct;
 
     /*Configure GPIO pin Output Level */
-    HAL_GPIO_WritePin(GPIOB, SIM_PWR_Pin|SIM_DTR_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, SIM_PWR_Pin | SIM_DTR_Pin, GPIO_PIN_RESET);
 
     /*Configure GPIO pins : LED_STAT_Pin SIM_PWR_Pin SIM_DTR_Pin ADC_PWR_Pin */
-    GPIO_InitStruct.Pin = SIM_PWR_Pin|SIM_DTR_Pin;
+    GPIO_InitStruct.Pin = SIM_PWR_Pin | SIM_DTR_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -166,11 +182,24 @@ SIM808_GPIOInit(void)
 
     /*Configure GPIO pin : SIM_RI_Pin */
     GPIO_InitStruct.Pin = SIM_RI_Pin;
-    GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+    GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(SIM_RI_GPIO_Port, &GPIO_InitStruct);
 
-    HAL_NVIC_SetPriority(EXTI15_10_IRQn, 2, 0);
+    HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
+
+    // Init timer
+    __HAL_RCC_TIM4_CLK_ENABLE();
+
+    /* Period is 1s */
+    htim4.Instance = TIM4;
+    htim4.Init.Prescaler = (uint32_t)(SystemCoreClock / 1000) - 1;
+    htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+    htim4.Init.Period = 1200 - 1;
+    htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+    HAL_TIM_Base_Init(&htim4);
+
+    HAL_NVIC_SetPriority(TIM4_IRQn, 8, 0);
 }
 
 void
@@ -257,6 +286,21 @@ SIM808_SendAT(const char *msg, uint8_t req_id, uint16_t timeout)
 }
 
 static ErrorType_t
+SIM808_Flush_out(void)
+{
+    DEBUG_INFO("Flushing SIM808 out...");
+    vTaskDelay(500);
+    SIM808_Ping(NULL, SIM808_PING, 100);
+    vTaskDelay(500);
+    SIM808_Ping(NULL, SIM808_PING, 100);
+    vTaskDelay(3100);
+    SIM808_Ping(NULL, SIM808_PING, 100);
+    vTaskDelay(1000);
+    SIM808_Ping(NULL, SIM808_PING, 100);
+    return Ok;
+}
+
+static ErrorType_t
 SIM808_DisableEcho(void)
 {
     DEBUG_INFO("Disabling echo...");
@@ -273,18 +317,21 @@ SIM808_Ping(void)
 static ErrorType_t
 SIM808_CheckSIMCard(void)
 {
+    DEBUG_INFO("Checking SIM card...");
     return SIM808_SendAT(NULL, SIM808_CHECK_SIM, 100);
 }
 
 static ErrorType_t
 SIM808_RegHomeNetwork(void)
 {
+    DEBUG_INFO("Register Home Network...");
     return SIM808_SendAT(NULL, SIM808_REG_HOME_NETWORK, 500);
 }
 
 static ErrorType_t
 SIM808_CheckHomeNetwork(void)
 {
+    DEBUG_INFO("Checking network...");
     return SIM808_SendAT(NULL, SIM808_CHECK_HOME_NETWORK, 100);
 }
 
@@ -305,17 +352,19 @@ SIM808_SetTextMode(void)
 static
 ErrorType_t SIM808_PresentCallID(void)
 {
+    DEBUG_INFO("Present call number when receiving call...");
     return SIM808_SendAT(NULL, SIM808_PRESENT_ID, 100);
 }
 
-static
-ErrorType_t SIM808_HangUp(void)
+static ErrorType_t
+SIM808_HangUp(void)
 {
+    DEBUG_INFO("Hanging up the call...");
     return SIM808_SendAT(NULL, SIM808_HANG_UP, 1000);
 }
 
-static
-ErrorType_t SIM808_SleepMode(uint32_t cmd)
+static ErrorType_t
+SIM808_SleepMode(uint32_t cmd)
 {
     return SIM808_SendAT(NULL, cmd, 100);
 }
@@ -389,22 +438,23 @@ SIM808_CMGF_resp(char *resp)
 }
 
 /* Ex. +CLIP: "+989108793902",145,"",0,"",0 */
-static void
+static ErrorType_t
 SIM808_parseNumber(char *resp, struct number_t *num)
 {
-    char *start, *end;
+    char *pos, *start, *end;
     char type[NUM_TYPE_SIZE + 1] = {0};
     uint8_t len;
-    if (!strstr(resp, "+CLIP: "))
+    pos = strstr(resp, "+CLIP: ");
+    if (pos == NULL)
     {
-        return;
+        return SIM808_Error;
     }
-    start = strchr(resp, '"');
+    start = strchr(pos, '"');
     end = strchr(start, ',');
     len = end - start;
     if (len >= MAX_NUM_SIZE)
     {
-        return;
+        return SIM808_Error;
     }
     /* num is inside "" */
     strncpy(num->num, start, (size_t)len);
@@ -412,16 +462,23 @@ SIM808_parseNumber(char *resp, struct number_t *num)
     end++;
     strncpy(type, end, NUM_TYPE_SIZE);
     num->type = atoi(type);
+    return Ok;
 }
 
 static bool
 SIM808_GetNumber(void)
 {
+    ErrorType_t status = SIM808_Error;
     char CLIP_resp[MAX_COMMAND_INPUT_LENGTH] = {0};
     struct number_t CallNumber = {.type = 0, .num = {0}};
-
     UART_GetData(CLIP_resp);
-    SIM808_parseNumber(CLIP_resp, &CallNumber);
+    debug_printf("%s\r\n", CLIP_resp);
+    status = SIM808_parseNumber(CLIP_resp, &CallNumber);
+    if (status != Ok)
+    {
+        DEBUG_ERROR("Can not obtain number!");
+        return false;
+    }
     while (SIM808_HangUp())
     {
         vTaskDelay(40); /* Until success */
@@ -435,8 +492,10 @@ SIM808_GetNumber(void)
     if (STR_COMPARE(number.num, CallNumber.num))
     {
         /* Unknown number */
+        DEBUG_INFO("Call from unauthorized number!");
         return false;
     }
+    debug_printf("Call from %s:%d\r\n", CallNumber.num, CallNumber.type);
     return true;
 }
 
@@ -505,15 +564,78 @@ isNumberMemorized(void)
     return numberMemorized == true;
 }
 
+static void
+SIM808_Timer4Start(void)
+{
+    /* Clear interrupt flags */
+    __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
+    __HAL_TIM_CLEAR_IT(&htim4, TIM_IT_UPDATE);
+    /* Start the timer */
+    htim4.Instance->CNT = 0;
+    HAL_TIM_Base_Start_IT(&htim4);
+}
+
+static void
+SIM808_Timer4Stop(void)
+{
+    HAL_TIM_Base_Stop_IT(&htim4);
+}
+
+static void
+SIM808_EnableIRQs(void)
+{
+    HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+    HAL_NVIC_EnableIRQ(TIM4_IRQn);
+}
+
 /**
  * @brief EXTI line detection callbacks
  * @param GPIO_Pin: Specifies the pins connected EXTI line
  * @retval None
  */
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+void
+HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
+    static uint32_t ticks = 0;
     if (GPIO_Pin == SIM_RI_Pin)
     {
-        _setSignal(CALLTask, BIT_1);
+        if (HAL_GPIO_ReadPin(GPIOB, SIM_RI_Pin) == GPIO_PIN_RESET)
+        {
+            /* Remember timestamp */
+            ticks = HAL_GetTick();
+            /* Start the timer when SIM_RI goes low */
+            SIM808_Timer4Start();
+        }
+        else
+        {
+            /* Stop the timer when SIM_RI goes back (high) */
+            SIM808_Timer4Stop();
+            if ((HAL_GetTick() - ticks) < 120)
+            {
+                /* If SIM_RI was less than 120ms low, SIM808 received an SMS */
+                _setSignal(CALLTask, SIM_RI_IRQ_SMS);
+            }
+            /* Restart the timestamp */
+            ticks = 0;
+        }
+    }
+}
+
+/*
+ * @brief: If timer kicks the timeout, SIM808 is receiving the call
+ *         Timeout is 1200ms
+ */
+void
+TIM4_IRQHandler(void)
+{
+    if (__HAL_TIM_GET_FLAG(&htim4, TIM_FLAG_UPDATE) != RESET)
+    {
+        __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
+        __HAL_TIM_CLEAR_IT(&htim4, TIM_IT_UPDATE);
+        HAL_NVIC_ClearPendingIRQ(TIM4_IRQn);
+
+        SIM808_Timer4Stop();
+        /* Give signal to Call task */
+        _setSignal(CALLTask, SIM_RI_IRQ_CALL);
     }
 }

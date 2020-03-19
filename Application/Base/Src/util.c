@@ -9,14 +9,14 @@
 #include <string.h>
 #include "util.h"
 #include "communication.h"
-#include "usb_device.h"
+#include "usb.h"
 
 static void
 vprint(const char *fmt, va_list argp)
 {
     char buf[512] = {0};
     int len;
-    len = vsprintf(buf, fmt, argp);
+    len = vsnprintf(buf, sizeof(buf), fmt, argp);
     if (len > 0)
     {
         CDC_Transmit_FS(buf, strlen(buf));
@@ -26,7 +26,7 @@ vprint(const char *fmt, va_list argp)
 void
 debug_init(void)
 {
-    MX_USB_DEVICE_Init();
+    USB_Init();
     communicationInit();
 }
 

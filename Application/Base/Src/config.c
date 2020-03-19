@@ -106,10 +106,13 @@ void Error_Handler (ErrorType_t ErrorType) {
 	}
 }
 
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-	if (htim->Instance == TIM2) {
-    HAL_IncTick();
-  }
+void
+HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM2)
+    {
+        HAL_IncTick();
+    }
 }
 
 /**

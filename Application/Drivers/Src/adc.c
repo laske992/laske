@@ -5,8 +5,11 @@
  *      Author: Mislav
  */
 #include "adc.h"
+#include "config.h"
+#include "util.h"
+#include "led.h"
 
-#define ADC_FULL_SCALE 		4095.	/* 0xFFF */
+#define ADC_FULL_SCALE 		4095	/* 0xFFF */
 #define R37_OHM 			(28 * 1000.)
 #define R38_OHM 			(20 * 1000.)
 #define R39_OHM				(10 * 1000.)
@@ -19,7 +22,7 @@
 ADC_HandleTypeDef hadc;
 DMA_HandleTypeDef hdma_adc;
 
-xSemaphoreHandle ADC_conSemaphore;
+xSemaphoreHandle ADC_conSemaphore = NULL;
 
 static uint16_t ADC_ReadValue[3];
 static double WeightVal;
@@ -42,7 +45,7 @@ void ADC_Init(void) {
 
   /* DMA interrupt init */
   /* DMA1_Channel1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 5, 0);
+  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 6, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
 
   /**Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
@@ -111,10 +114,12 @@ void ADC_GPIOInit(void) {
 
 void ADC_startMeasurement(void)
 {
+    DEBUG_INFO(" ");
 	/* Start conversion */
 	ADC_Start();
 	/* Wait for DMA conversion */
-	if (xSemaphoreTake(ADC_conSemaphore, DMA_MAX_TIME) == pdFALSE) {
+	if (xSemaphoreTake(ADC_conSemaphore, DMA_MAX_TIME) == pdFALSE)
+	{
 		return;
 	}
 	/* Stop conversion */
@@ -139,7 +144,6 @@ static void ADC_Stop(void)
 void ADC_DeInit(void)
 {
 	ADC_GPIODeInit();
-
 	HAL_ADC_DeInit(&hadc);
 }
 
@@ -150,8 +154,9 @@ void ADC_GPIODeInit(void) {
 /* DMA Conversion complete callback */
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
+    BaseType_t xTaskWokenByConvCplt = pdFALSE;
 	/* Give semaphore to processing */
-	xSemaphoreGive(ADC_conSemaphore);
+	xSemaphoreGiveFromISR(ADC_conSemaphore, &xTaskWokenByConvCplt);
 }
 
 double ADC_GetWeightValue(void) {
@@ -159,9 +164,13 @@ double ADC_GetWeightValue(void) {
 }
 
 static void
-ADC_CreateSemaphore(void) {
+ADC_CreateSemaphore(void)
+{
 	ADC_conSemaphore = xSemaphoreCreateBinary();
-	if (!ADC_conSemaphore) {
+	if (ADC_conSemaphore == NULL)
+	{
+	    DEBUG_ERROR("ADC_conSemaphore not created!");
+	    LED_Toggle();
 		Error_Handler(FreeRTOS_Error);
 	}
 }
@@ -174,21 +183,32 @@ ADC_processData(void)
 	double ADC_WeightVolt, AmpInWeightVolt;
 	double Vrefint_data;
 	uint16_t Vrefint_cal = *((uint16_t*)VREFINT_CAL_ADDR);
-
+	DEBUG_INFO(" ");
+	debug_printf("Vrefint_cal = %d\r\n", Vrefint_cal);
+	debug_printf("rv[0] = %d\r\n", ADC_ReadValue[0]);
+	debug_printf("rv[1] = %d\r\n", ADC_ReadValue[1]);
+	debug_printf("rv[2] = %d\r\n", ADC_ReadValue[2]);
 	/* Are values in the range? */
-	if (!ADC_ReadValue[0] || (ADC_ReadValue[0] > ADC_FULL_SCALE)
-			|| !ADC_ReadValue[1] || (ADC_ReadValue[1] > ADC_FULL_SCALE)) {
+	if (ADC_ReadValue[0] > ADC_FULL_SCALE
+	        || ADC_ReadValue[1] > ADC_FULL_SCALE
+	        || ADC_ReadValue[2] > ADC_FULL_SCALE)
+	{
 		return;
 	}
 	Vrefint_data = (double) ADC_ReadValue[2];
-	Vdd = 3.0 * (Vrefint_cal / Vrefint_data);
-
-	ADC_BatVolt = (ADC_ReadValue[1] / ADC_FULL_SCALE) * Vdd;
+	debug_printf("Vrefint data = %f\r\n", Vrefint_data);
+	Vdd = 3 * (Vrefint_cal / Vrefint_data);
+	debug_printf("Vdd = %f\r\n", Vdd);
+	ADC_BatVolt = ((double) ADC_ReadValue[1] / ADC_FULL_SCALE) * Vdd;
 	BatVolt = ADC_BatVolt * ((R37_OHM + R38_OHM) / (R38_OHM));
-	ADC_WeightVolt = (ADC_ReadValue[0] / ADC_FULL_SCALE) * Vdd;
+	ADC_WeightVolt = ((double) ADC_ReadValue[0] / ADC_FULL_SCALE) * Vdd;
 	AmpInWeightVolt = ADC_WeightVolt / (AMP_GAIN);
+	debug_printf("BatVolt = %4.2f\r\n", BatVolt);
+	debug_printf("ADC_WeightVolt = %4.2f\r\n", ADC_WeightVolt);
+	debug_printf("AmpInWeightVolt = %4.2f\r\n", AmpInWeightVolt);
 
 	WeightVal = ADC_calculateWeight(BatVolt, AmpInWeightVolt * 1000);
+	debug_printf("WeightVal = %4.2f\r\n", WeightVal);
 }
 
 static double
@@ -197,7 +217,8 @@ ADC_calculateWeight(double batVolt, double loadCellOutputmV)
 	float mVolt_kg;
 
 	mVolt_kg = loadCellOutputmV * LOADCELL_MAX_SENSING;
-	if (batVolt) {
+	if (batVolt != 0)
+	{
 		return mVolt_kg / (LOADCELL_SENSITIVITY * batVolt);
 	}
 	return 0;
