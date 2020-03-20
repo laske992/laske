@@ -49,7 +49,8 @@ enum {
     ENTER_SLEEP_MODE,
     EXIT_SLEEP_MODE,
     SET_NUMBER,
-    SMS_TEXT
+    SMS_TEXT,
+    SMS_READ
 };
 
 /* Private variables ---------------------------------------------------------*/
@@ -66,6 +67,9 @@ uint32_t tim4_ticks;
 
 /* Private function prototypes -----------------------------------------------*/
 static void SIM808_PowerOn();
+static bool SIM808_GetSMS();
+static ErrorType_t SIM808_parseSMS(char *, char *, size_t);
+static void SIM808_readSMS(char *, char *, size_t);
 static bool SIM808_GetNumber();
 static ErrorType_t SIM808_parseNumber(char *, struct number_t *);
 static void SIM808_memorizeNumber();
@@ -106,7 +110,8 @@ static const struct sim808_req sim808_req[] = {
         {"AT+CSCLK=1", "OK", SIM808_check_resp, NULL},   /* Enter Sleep Mode */
         {"AT+CSCLK=0", "OK", SIM808_check_resp, NULL},   /* Exit Sleep Mode */
         {"AT+CMGS=", ">", SIM808_check_resp, NULL},                  /* Set number */
-        {NULL, NULL, NULL, NULL}                      /* SMS TEXT*/
+        {NULL, NULL, NULL, NULL},                      /* SMS TEXT*/
+        {"AT+CMGR=", NULL, NULL, NULL}
 };
 
 ErrorType_t
@@ -151,7 +156,19 @@ SIM808_DeInit(void)
 }
 
 void
-SIM808_handleCall(char *input)
+SIM808_handleSMS(void)
+{
+    /* Get CMTI input */
+    if (SIM808_GetSMS())
+    {
+        //SIM808_SendSMS("Hello World!");
+        /* Start Measurement task */
+        _setSignal(ADCTask, BIT_2);
+    }
+}
+
+void
+SIM808_handleCall(void)
 {
     /* Get CLIP input while RING */
     if (SIM808_GetNumber())
@@ -435,6 +452,76 @@ SIM808_CMGF_resp(char *resp)
         break;
     }
     return status;
+}
+
+static bool
+SIM808_GetSMS(void)
+{
+    ErrorType_t status = SIM808_Error;
+    char CMTI_resp[MAX_COMMAND_INPUT_LENGTH] = {0};
+    char sms[100 + 1] = {0};
+    UART_GetData(CMTI_resp);
+    debug_printf("%s\r\n", CMTI_resp);
+    status = SIM808_parseSMS(CMTI_resp, sms, 100);
+    debug_printf("trebao bih isprintati sms: %s\r\n", sms);
+    return false;
+    //status = SIM808_parseNumber(CLIP_resp, &CallNumber);
+}
+
+static ErrorType_t
+SIM808_parseSMS(char *resp, char *sms, size_t sms_max_len)
+{
+    char *pos;
+    char *sms_index;
+    pos = strstr(resp, "+CMTI: ");
+    if (pos == NULL)
+    {
+        DEBUG_ERROR("SMS not received!");
+        return false;
+    }
+    sms_index = strchr(pos, ',');
+    sms_index++;
+    SIM808_readSMS(sms, sms_index, sms_max_len);
+    return true;
+}
+
+static void
+SIM808_readSMS(char *sms, char *sms_index, size_t sms_max_len)
+{
+    char buf[256] = {0};
+    char *pos;
+    char *token[8 + 1] = {NULL};
+    char delim[] = "\"";
+    int i = 0;
+    size_t sms_len = 0;
+    SIM808_SendAT(sms_index, SMS_READ, 100);
+    UART_GetData(buf);
+    debug_printf("%s\r\n", buf);
+    pos = strstr(buf, "+CMGR: ");
+    if (pos == NULL)
+    {
+        debug_printf("going out..\r\n");
+        return;
+    }
+    token[i] = strtok(pos, delim);
+    while (token[i] != NULL)
+    {
+        token[++i] = strtok(NULL, delim);
+    }
+    if (strcmp(token[0], "+CMGR: ") != 0)
+    {
+        debug_printf("NOK\r\n");
+        return;
+    }
+    if (strstr(number.num, token[3]) == NULL)
+    {
+        /* Unknown number */
+        DEBUG_INFO("SMS from unauthorized number!");
+        return;
+    }
+    sms_len = strlen(token[7]);
+    token[7][sms_len - 2] = '\0';
+    memmove(sms, token[7], sms_max_len);
 }
 
 /* Ex. +CLIP: "+989108793902",145,"",0,"",0 */

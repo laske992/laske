@@ -148,6 +148,7 @@ static void _HandleCallTask(void const * argument)
         else if (event.value.signals & SIM_RI_IRQ_SMS)
         {
             DEBUG_INFO("IRQ SMS kicked");
+            SIM808_handleSMS();
         }
     }
     /* Should not reach this point */

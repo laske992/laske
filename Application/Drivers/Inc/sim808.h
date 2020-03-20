@@ -39,6 +39,7 @@ typedef enum {
 	TEXT_MODE
 } CMGF_resp_t;
 
+void SIM808_handleSMS();
 void SIM808_handleCall();
 void SIM808_GPIOInit();
 void SIM808_GPIODeInit();
