@@ -50,7 +50,25 @@ enum {
     EXIT_SLEEP_MODE,
     SET_NUMBER,
     SMS_TEXT,
-    SMS_READ
+    SMS_READ,
+    TCP_IP_CONNECTION_MODE,
+    TCP_IP_APPLICATION_MODE,
+    SIM808_GET_GPRS_STATUS,
+    SIM808_SET_APN,
+    SIM808_BRING_UP_GPRS,
+    SIM808_GET_LOCAL_IP,
+    SIM808_START_TCP_IP_CONN,
+    SIM808_PREPARE_TCP_PACKET,
+    SIM808_SEND_TCP_PACKET,
+    SIM808_BEARER_CONFIGURE,
+    SIM808_BEARER_OPEN_GPRS,
+    SIM808_BEARER_CLOSE_GPRS,
+    SIM808_HTTP_INIT,
+    SIM808_HTTP_SET_PARAM,
+    SIM808_HTTP_PREPARE_HTTP_POST,
+    SIM808_HTTP_UPLOAD_POST_DATA,
+    SIM808_HTTP_POST,
+    SIM808_HTTP_TERMINATE
 };
 
 /* Private variables ---------------------------------------------------------*/
@@ -85,6 +103,20 @@ static ErrorType_t SIM808_CheckHomeNetwork();
 static ErrorType_t SIM808_SetSMSCenter();
 static ErrorType_t SIM808_SetTextMode();
 static ErrorType_t SIM808_PresentCallID();
+static ErrorType_t SIM808_Get_GPRS_Status();
+static ErrorType_t SIM808_Set_APN();
+static ErrorType_t SIM808_BringUp_GPRS();
+static ErrorType_t SIM808_Get_Local_IP();
+static ErrorType_t SIM808_Start_TCP_Conn();
+static ErrorType_t SIM808_Bearer_Configure(char *);
+static ErrorType_t SIM808_Bearer_Open_GPRS_Context();
+static ErrorType_t SIM808_Bearer_Close_GPRS_Context();
+static ErrorType_t SIM808_HTTP_Init();
+static ErrorType_t SIM808_HTTP_Set_Param(char *);
+static ErrorType_t SIM808_HTTP_Pepare_POST_data(size_t, uint32_t);
+static ErrorType_t SIM808_HTTP_Upload_POST_Data(char *);
+static ErrorType_t SIM808_HTTP_Post();
+static ErrorType_t SIM808_HTTP_Terminate();
 static ErrorType_t SIM808_HangUp();
 static ErrorType_t SIM808_SleepMode(uint32_t);
 static ErrorType_t SIM808_SendAT(const char *, uint8_t, uint16_t);
@@ -111,7 +143,26 @@ static const struct sim808_req sim808_req[] = {
         {"AT+CSCLK=0", "OK", SIM808_check_resp, NULL},   /* Exit Sleep Mode */
         {"AT+CMGS=", ">", SIM808_check_resp, NULL},                  /* Set number */
         {NULL, NULL, NULL, NULL},                      /* SMS TEXT*/
-        {"AT+CMGR=", NULL, NULL, NULL}
+        {"AT+CMGR=", NULL, NULL, NULL},
+        {"AT+CIPMUX=", NULL, NULL, NULL},              /* Set TCP/IP Connection Mode */
+        {"AT+CIPMODE", NULL, NULL, NULL},              /* Select TCP/IP Application Mode */
+        {"AT+CGATT?", "+CGATT:", SIM808_check_resp, NULL},  /* Get GPRS Status */
+        {"AT+CSTT=", "OK", SIM808_check_resp, NULL},    /* Set APN */
+        {"AT+CIICR", "OK", SIM808_check_resp, NULL},    /* Bring up GPRS */
+        {"AT+CIFSR", NULL, NULL, NULL},                 /* Get local IP address */
+        {"AT+CIPSTART=", "OKCONNECT OK", SIM808_check_resp, NULL},  /* Start up TCP/IP connection */
+        {"AT+CIPSEND", ">", SIM808_check_resp, NULL},   /* Start sending data to server */
+        {NULL, "SEND OK", SIM808_check_resp, NULL},     /* Send data to server */
+        {"AT+SAPBR=3,1,", "OK", SIM808_check_resp, NULL},   /* Configuring Bearer profile 1 */
+        {"AT+SAPBR=1,1", "OK", SIM808_check_resp, NULL},    /* Opening GPRS Context */
+        {"AT+SAPBR=0,1", "OK", SIM808_check_resp, NULL},    /* Closing GPRS Context */
+        {"AT+HTTPINIT", "OK", SIM808_check_resp, NULL}, /* Init HTTP Service */
+        {"AT+HTTPPARA=", "OK", SIM808_check_resp, NULL}, /* Set HTTP Parameter */
+        {"AT+HTTPDATA=", "DOWNLOAD", SIM808_check_resp, NULL},  /* Prepare to upload HTTP data */
+        {NULL, "OK", SIM808_check_resp, NULL},          /* Upload HTTP Data */
+        {"AT+HTTPACTION=1", "OK", SIM808_check_resp, NULL},          /* POST Data */
+        {"AT+HTTPTERM", "OK", SIM808_check_resp, NULL}      /* Terminate HTTP */
+
 };
 
 ErrorType_t
@@ -134,6 +185,7 @@ SIM808_Init(void)
         if ((status = SIM808_SetSMSCenter())) continue;
         if ((status = SIM808_SetTextMode())) continue;
         if ((status = SIM808_PresentCallID())) continue;
+        if ((status = SIM808_Set_APN())) continue;
         if (status == Ok) break;
     } while (attempts--);
     if (attempts < 0)
@@ -158,12 +210,32 @@ SIM808_DeInit(void)
 void
 SIM808_handleSMS(void)
 {
+    char msg[100 + 1] = {0};
+    strcpy(msg, "data1 = {'name': 'beeSmart', 'serial_number': '1111-2222-3333-4444'}");
     /* Get CMTI input */
     if (SIM808_GetSMS())
     {
-        //SIM808_SendSMS("Hello World!");
-        /* Start Measurement task */
-        _setSignal(ADCTask, BIT_2);
+        SIM808_Get_GPRS_Status();
+        vTaskDelay(50);
+        SIM808_BringUp_GPRS();
+        vTaskDelay(100);
+        SIM808_Get_Local_IP();
+        /* Bearer Configure */
+        SIM808_Bearer_Configure("\"Contype\",\"GPRS\"");
+        SIM808_Bearer_Configure("\"APN\",\"tomato\"");
+        SIM808_Bearer_Open_GPRS_Context();
+        /* HTTP POST */
+        SIM808_HTTP_Init();
+        SIM808_HTTP_Set_Param("\"CID\",1");
+        SIM808_HTTP_Set_Param("\"URL\",\"http://a7cf245a.ngrok.io/api/v1/site/new\"");
+        SIM808_HTTP_Pepare_POST_data(strlen(msg), 50000);
+        SIM808_HTTP_Upload_POST_Data(msg);
+        SIM808_HTTP_Post();
+        SIM808_HTTP_Terminate();
+
+        SIM808_Bearer_Close_GPRS_Context();
+        //SIM808_Start_TCP_Conn();
+        //SIM808_SendTC("Hello World!");
     }
 }
 
@@ -381,6 +453,127 @@ SIM808_HangUp(void)
 }
 
 static ErrorType_t
+SIM808_Get_GPRS_Status(void)
+{
+    DEBUG_INFO("Checking GPRS Status...");
+    return SIM808_SendAT(NULL, SIM808_GET_GPRS_STATUS, 100);
+}
+
+static ErrorType_t
+SIM808_Set_APN(void)
+{
+    DEBUG_INFO("Setting APN...");
+    return SIM808_SendAT("tomato", SIM808_SET_APN, 100);
+}
+
+static ErrorType_t
+SIM808_BringUp_GPRS(void)
+{
+    DEBUG_INFO("Bringing GPRS up...");
+    return SIM808_SendAT(NULL, SIM808_BRING_UP_GPRS, 100);
+}
+
+static ErrorType_t
+SIM808_Get_Local_IP(void)
+{
+    char ip_addr[16] = {0};
+    DEBUG_INFO("Getting Local IP address...");
+    SIM808_SendAT(NULL, SIM808_GET_LOCAL_IP, 100);
+    UART_GetData(ip_addr);
+    DEBUG_INFO("IP address: %s", ip_addr);
+    return Ok;
+}
+
+static ErrorType_t
+SIM808_Start_TCP_Conn(void)
+{
+    DEBUG_INFO("Starting TCP/IP connection...");
+    return SIM808_SendAT("\"TCP\",\"116.228.221.51\",\"8500\"", SIM808_START_TCP_IP_CONN, 100);
+}
+
+ErrorType_t
+SIM808_SendTCP_Packet(char *message)
+{
+    ErrorType_t status = Ok;
+    if ((status = SIM808_SendAT(NULL, SIM808_PREPARE_TCP_PACKET, 1000)))
+    {
+        DEBUG_ERROR("Can not send TCP packet");
+        return status;
+        //return status;
+    }
+    vTaskDelay(1000);
+    if ((status = SIM808_SendAT(message, SIM808_SEND_TCP_PACKET, 1000)))
+    {
+        return status;
+    }
+    return status;
+}
+
+static ErrorType_t
+SIM808_Bearer_Configure(char *msg)
+{
+    DEBUG_INFO("Configuring Bearer profile 1...");
+    return SIM808_SendAT(msg, SIM808_BEARER_CONFIGURE, 100);
+}
+
+static ErrorType_t
+SIM808_Bearer_Open_GPRS_Context(void)
+{
+    DEBUG_INFO("Opening GPRS Context...");
+    return SIM808_SendAT(NULL, SIM808_BEARER_OPEN_GPRS, 100);
+}
+
+static ErrorType_t
+SIM808_Bearer_Close_GPRS_Context(void)
+{
+    DEBUG_INFO("Closing GPRS Context...");
+    return SIM808_SendAT(NULL, SIM808_BEARER_CLOSE_GPRS, 100);
+}
+
+static ErrorType_t
+SIM808_HTTP_Init(void)
+{
+    DEBUG_INFO("Initializing HTTP Service...");
+    return SIM808_SendAT(NULL, SIM808_HTTP_INIT, 1000);
+}
+
+static ErrorType_t
+SIM808_HTTP_Set_Param(char *param)
+{
+    DEBUG_INFO("Setting HTTP Parameter: %s...", param);
+    return SIM808_SendAT(param, SIM808_HTTP_SET_PARAM, 100);
+}
+
+static ErrorType_t
+SIM808_HTTP_Pepare_POST_data(size_t size, uint32_t max_latency_time)
+{
+    char msg[20] = {0};
+    snprintf(msg, sizeof msg, "%d,%d", size, max_latency_time);
+    return SIM808_SendAT(msg, SIM808_HTTP_PREPARE_HTTP_POST, 100);
+}
+
+static ErrorType_t
+SIM808_HTTP_Upload_POST_Data(char *msg)
+{
+    DEBUG_INFO("Upload HTTP data: %s...", msg);
+    return SIM808_SendAT(msg, SIM808_HTTP_UPLOAD_POST_DATA, 500);
+}
+
+static ErrorType_t
+SIM808_HTTP_Post(void)
+{
+    DEBUG_INFO("HTTP POST...");
+    return SIM808_SendAT(NULL, SIM808_HTTP_POST, 100);
+}
+
+static ErrorType_t
+SIM808_HTTP_Terminate(void)
+{
+    DEBUG_INFO("Terminating HTTP Service...");
+    return SIM808_SendAT(NULL, SIM808_HTTP_TERMINATE, 100);
+}
+
+static ErrorType_t
 SIM808_SleepMode(uint32_t cmd)
 {
     return SIM808_SendAT(NULL, cmd, 100);
@@ -464,6 +657,10 @@ SIM808_GetSMS(void)
     debug_printf("%s\r\n", CMTI_resp);
     status = SIM808_parseSMS(CMTI_resp, sms, 100);
     debug_printf("trebao bih isprintati sms: %s\r\n", sms);
+    if (STR_COMPARE(sms, "START") == 0)
+    {
+        return true;
+    }
     return false;
     //status = SIM808_parseNumber(CLIP_resp, &CallNumber);
 }
