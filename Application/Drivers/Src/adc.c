@@ -170,7 +170,6 @@ ADC_CreateSemaphore(void)
 	if (ADC_conSemaphore == NULL)
 	{
 	    DEBUG_ERROR("ADC_conSemaphore not created!");
-	    LED_Toggle();
 		Error_Handler(FreeRTOS_Error);
 	}
 }

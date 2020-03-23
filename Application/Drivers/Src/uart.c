@@ -11,7 +11,6 @@
 
 UART_HandleTypeDef huart1;
 TIM_HandleTypeDef htim3;
-uint8_t rxByte;
 
 static void UART_ByteReceivedHandler();
 static void UART_TransmissionCompleteHandler();
@@ -81,8 +80,8 @@ UART_Init(void)
     {
         Error_Handler(FreeRTOS_Error);
     }
-    uartRxQueue = xQueueCreate(SIM808_BUFFER_SIZE, sizeof(rxByte));
-    uartTxQueue = xQueueCreate(MAX_AT_CMD_LEN, sizeof(rxByte));
+    uartRxQueue = xQueueCreate(SIM808_BUFFER_SIZE, sizeof(uint8_t));
+    uartTxQueue = xQueueCreate(MAX_AT_CMD_LEN, sizeof(uint8_t));
 
     if ((uartRxQueue == NULL) || (uartTxQueue == NULL))
     {
@@ -374,7 +373,7 @@ static ErrorType_t
 UART_TakeMutex(uint16_t timeout)
 {
     ErrorType_t ret = Ok;
-    if(xSemaphoreTake(UARTMutex, timeout) == pdFALSE)
+    if (xSemaphoreTake(UARTMutex, timeout) == pdFALSE)
     {
         return UART_Error;
     }

@@ -80,7 +80,7 @@ int main(void)
 //	SIM808_SetupTaskHandle = osThreadCreate(osThread(SIM808_SetupTask), NULL);
 
 	/* Incoming call handle task */
-	osThreadDef(HandleCallTask, _HandleCallTask, osPriorityNormal, 0, 900);
+	osThreadDef(HandleCallTask, _HandleCallTask, osPriorityNormal, 0, 1000);
 	CallTaskHandle = osThreadCreate(osThread(HandleCallTask), NULL);
 
 //	/* Prepare and send SMS task */
@@ -135,11 +135,12 @@ void _setSignal(_TaskId TaskId, int32_t bit)
 static void _HandleCallTask(void const * argument)
 {
     osEvent event;
+    uint32_t signals = SIM_RI_IRQ_CALL | SIM_RI_IRQ_SMS;
     SIM808_Init();
     for(;;)
     {
-        /* Wait interrupt on SIM_RI pin */
-        event = osSignalWait(SIM_RI_IRQ_CALL | SIM_RI_IRQ_SMS, osWaitForever);
+        /* Wait any of signals */
+        event = osSignalWait(signals, osWaitForever);
         if (event.value.signals & SIM_RI_IRQ_CALL)
         {
             DEBUG_INFO("IRQ Call kicked");

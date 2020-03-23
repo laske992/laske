@@ -11,7 +11,9 @@
 #define MAX_NUM_SIZE 30
 #define NUM_TYPE_SIZE 3
 #define SIM808_ENTER ("\r\n")
-#define SEND_SMS (0x1A)		/* CTRL + Z */
+#define CTRL_Z (0x1A)		/* CTRL + Z */
+
+#define HTTP_URL "\"URL\",\"http://0.tcp.ngrok.io:17908\"" /* /api/v1/site/new */
 
 /* Private typedef -----------------------------------------------------------*/
 typedef ErrorType_t (SIM808_parseResp)(char *);
@@ -34,25 +36,33 @@ struct number_t {
     char num[MAX_NUM_SIZE];
 } __attribute__((__packed__));
 
+typedef enum {
+    NONE = 0,
+    HTTP_POST,
+    HTTP_GET,
+    TCP_REQUEST
+} SMS_action_t;
+
 enum {
     SIM808_SAVE_SETTINGS = 0,
-    DISABLE_ECHO,
+    SIM808_DISABLE_ECHO,
     SIM808_PING,
     SIM808_CHECK_SIM,
     SIM808_REG_HOME_NETWORK,
     SIM808_CHECK_HOME_NETWORK,
-    SET_SMS_FORMAT,
-    CHECK_SMS_FORMAT,
-    SMS_CENTER_SET,
+    SIM808_SMS_SET_FORMAT,
+    SIM808_SMS_CHECK_FORMAT,
+    SIM808_SMS_CENTER_SET,
     SIM808_PRESENT_ID,
     SIM808_HANG_UP,
-    ENTER_SLEEP_MODE,
-    EXIT_SLEEP_MODE,
-    SET_NUMBER,
-    SMS_TEXT,
-    SMS_READ,
-    TCP_IP_CONNECTION_MODE,
-    TCP_IP_APPLICATION_MODE,
+    SIM808_ENTER_SLEEP_MODE,
+    SIM808_EXIT_SLEEP_MODE,
+    SIM808_SMS_SET_NUMBER,
+    SIM808_SMS_TEXT,
+    SIM808_SMS_DELETE,
+    SIM808_SMS_READ,
+    SIM808_TCP_IP_CONNECTION_MODE,
+    SIM808_TCP_IP_APPLICATION_MODE,
     SIM808_GET_GPRS_STATUS,
     SIM808_SET_APN,
     SIM808_BRING_UP_GPRS,
@@ -65,6 +75,8 @@ enum {
     SIM808_BEARER_CLOSE_GPRS,
     SIM808_HTTP_INIT,
     SIM808_HTTP_SET_PARAM,
+    SIM808_HTTP_GET,
+    SIM808_HTTP_READ_SERVER_DATA,
     SIM808_HTTP_PREPARE_HTTP_POST,
     SIM808_HTTP_UPLOAD_POST_DATA,
     SIM808_HTTP_POST,
@@ -85,7 +97,7 @@ uint32_t tim4_ticks;
 
 /* Private function prototypes -----------------------------------------------*/
 static void SIM808_PowerOn();
-static bool SIM808_GetSMS();
+static SMS_action_t SIM808_get_sms_action();
 static ErrorType_t SIM808_parseSMS(char *, char *, size_t);
 static void SIM808_readSMS(char *, char *, size_t);
 static bool SIM808_GetNumber();
@@ -102,17 +114,20 @@ static ErrorType_t SIM808_RegHomeNetwork();
 static ErrorType_t SIM808_CheckHomeNetwork();
 static ErrorType_t SIM808_SetSMSCenter();
 static ErrorType_t SIM808_SetTextMode();
+static ErrorType_t SIM808_SMS_Delete(char *);
 static ErrorType_t SIM808_PresentCallID();
 static ErrorType_t SIM808_Get_GPRS_Status();
 static ErrorType_t SIM808_Set_APN();
 static ErrorType_t SIM808_BringUp_GPRS();
 static ErrorType_t SIM808_Get_Local_IP();
-static ErrorType_t SIM808_Start_TCP_Conn();
+static ErrorType_t SIM808_Start_TCP_Conn(char *);
 static ErrorType_t SIM808_Bearer_Configure(char *);
 static ErrorType_t SIM808_Bearer_Open_GPRS_Context();
 static ErrorType_t SIM808_Bearer_Close_GPRS_Context();
 static ErrorType_t SIM808_HTTP_Init();
 static ErrorType_t SIM808_HTTP_Set_Param(char *);
+static ErrorType_t SIM808_HTTP_Get();
+static ErrorType_t SIM808_HTTP_read_server_data();
 static ErrorType_t SIM808_HTTP_Pepare_POST_data(size_t, uint32_t);
 static ErrorType_t SIM808_HTTP_Upload_POST_Data(char *);
 static ErrorType_t SIM808_HTTP_Post();
@@ -123,6 +138,9 @@ static ErrorType_t SIM808_SendAT(const char *, uint8_t, uint16_t);
 static ErrorType_t SIM808_check_resp(char *, uint8_t);
 static ErrorType_t SIM808_CREG_resp(char *);
 static ErrorType_t SIM808_CMGF_resp(char *);
+static void SIM808_send_GET_request();
+static void SIM808_send_POST_request();
+static void SIM808_send_TCP_request();
 static void SIM808_Timer4Start();
 static void SIM808_Timer4Stop();
 static void SIM808_EnableIRQs();
@@ -143,6 +161,7 @@ static const struct sim808_req sim808_req[] = {
         {"AT+CSCLK=0", "OK", SIM808_check_resp, NULL},   /* Exit Sleep Mode */
         {"AT+CMGS=", ">", SIM808_check_resp, NULL},                  /* Set number */
         {NULL, NULL, NULL, NULL},                      /* SMS TEXT*/
+        {"AT+CMGD=", "OK", SIM808_check_resp, NULL},   /* Delete all SMS messages */
         {"AT+CMGR=", NULL, NULL, NULL},
         {"AT+CIPMUX=", NULL, NULL, NULL},              /* Set TCP/IP Connection Mode */
         {"AT+CIPMODE", NULL, NULL, NULL},              /* Select TCP/IP Application Mode */
@@ -158,6 +177,8 @@ static const struct sim808_req sim808_req[] = {
         {"AT+SAPBR=0,1", "OK", SIM808_check_resp, NULL},    /* Closing GPRS Context */
         {"AT+HTTPINIT", "OK", SIM808_check_resp, NULL}, /* Init HTTP Service */
         {"AT+HTTPPARA=", "OK", SIM808_check_resp, NULL}, /* Set HTTP Parameter */
+        {"AT+HTTPACTION=0", "OK", SIM808_check_resp, NULL},          /* GET Data */
+        {"AT+HTTPREAD", NULL, NULL, NULL},         /* Read the data from HTTP server */
         {"AT+HTTPDATA=", "DOWNLOAD", SIM808_check_resp, NULL},  /* Prepare to upload HTTP data */
         {NULL, "OK", SIM808_check_resp, NULL},          /* Upload HTTP Data */
         {"AT+HTTPACTION=1", "OK", SIM808_check_resp, NULL},          /* POST Data */
@@ -210,32 +231,22 @@ SIM808_DeInit(void)
 void
 SIM808_handleSMS(void)
 {
-    char msg[100 + 1] = {0};
-    strcpy(msg, "data1 = {'name': 'beeSmart', 'serial_number': '1111-2222-3333-4444'}");
-    /* Get CMTI input */
-    if (SIM808_GetSMS())
-    {
-        SIM808_Get_GPRS_Status();
-        vTaskDelay(50);
-        SIM808_BringUp_GPRS();
-        vTaskDelay(100);
-        SIM808_Get_Local_IP();
-        /* Bearer Configure */
-        SIM808_Bearer_Configure("\"Contype\",\"GPRS\"");
-        SIM808_Bearer_Configure("\"APN\",\"tomato\"");
-        SIM808_Bearer_Open_GPRS_Context();
-        /* HTTP POST */
-        SIM808_HTTP_Init();
-        SIM808_HTTP_Set_Param("\"CID\",1");
-        SIM808_HTTP_Set_Param("\"URL\",\"http://a7cf245a.ngrok.io/api/v1/site/new\"");
-        SIM808_HTTP_Pepare_POST_data(strlen(msg), 50000);
-        SIM808_HTTP_Upload_POST_Data(msg);
-        SIM808_HTTP_Post();
-        SIM808_HTTP_Terminate();
-
-        SIM808_Bearer_Close_GPRS_Context();
-        //SIM808_Start_TCP_Conn();
-        //SIM808_SendTC("Hello World!");
+    SMS_action_t action;
+    /* Get SMS action */
+    action = SIM808_get_sms_action();
+    switch (action) {
+    case HTTP_GET:
+        SIM808_send_GET_request();
+        break;
+    case HTTP_POST:
+        SIM808_send_POST_request();
+        break;
+    case TCP_REQUEST:
+        SIM808_send_TCP_request();
+        break;
+    default:
+        DEBUG_ERROR("Unknow SMS action!");
+        break;
     }
 }
 
@@ -316,7 +327,7 @@ SIM808_wakeUp(void)
 
     vTaskDelay(40);
     SIM808_Ping();
-    SIM808_SleepMode(EXIT_SLEEP_MODE);
+    SIM808_SleepMode(SIM808_EXIT_SLEEP_MODE);
 }
 
 static void
@@ -353,14 +364,14 @@ SIM808_SendAT(const char *msg, uint8_t req_id, uint16_t timeout)
         nchars = put_data(&p, msg, maxlen);
         maxlen -= nchars;
     }
-    if (req_id == SMS_TEXT)
+    if (req_id == SIM808_SMS_TEXT || req_id == SIM808_SEND_TCP_PACKET)
     {
         /* If SMS should be sent assure that there is enough space */
         if (maxlen < 1)
         {
             return SIM808_Error;
         }
-        PUT_BYTE(p, SEND_SMS);  /* CTRL + Z to send SMS */
+        PUT_BYTE(p, CTRL_Z);  /* CTRL + Z to send message */
     }
     else
     {
@@ -393,7 +404,7 @@ static ErrorType_t
 SIM808_DisableEcho(void)
 {
     DEBUG_INFO("Disabling echo...");
-    return SIM808_SendAT(NULL, DISABLE_ECHO, 100);
+    return SIM808_SendAT(NULL, SIM808_DISABLE_ECHO, 100);
 }
 
 static ErrorType_t
@@ -428,14 +439,20 @@ static ErrorType_t
 SIM808_SetSMSCenter(void)
 {
     DEBUG_INFO("Setting SMS center: \"+385910401\"");
-    return SIM808_SendAT("\"+385910401\"", SMS_CENTER_SET, 100);
+    return SIM808_SendAT("\"+385910401\"", SIM808_SMS_CENTER_SET, 100);
 }
 
 static ErrorType_t
 SIM808_SetTextMode(void)
 {
     DEBUG_INFO("Setting SMS mode to txt.");
-    return SIM808_SendAT(NULL, SET_SMS_FORMAT, 100);
+    return SIM808_SendAT(NULL, SIM808_SMS_SET_FORMAT, 100);
+}
+static ErrorType_t
+SIM808_SMS_Delete(char *idx)
+{
+    DEBUG_INFO("Deleting SMS at index: %s", idx);
+    return SIM808_SendAT(idx, SIM808_SMS_DELETE, 100);
 }
 
 static
@@ -485,10 +502,10 @@ SIM808_Get_Local_IP(void)
 }
 
 static ErrorType_t
-SIM808_Start_TCP_Conn(void)
+SIM808_Start_TCP_Conn(char *params)
 {
     DEBUG_INFO("Starting TCP/IP connection...");
-    return SIM808_SendAT("\"TCP\",\"116.228.221.51\",\"8500\"", SIM808_START_TCP_IP_CONN, 100);
+    return SIM808_SendAT(params, SIM808_START_TCP_IP_CONN, 100);
 }
 
 ErrorType_t
@@ -499,7 +516,6 @@ SIM808_SendTCP_Packet(char *message)
     {
         DEBUG_ERROR("Can not send TCP packet");
         return status;
-        //return status;
     }
     vTaskDelay(1000);
     if ((status = SIM808_SendAT(message, SIM808_SEND_TCP_PACKET, 1000)))
@@ -542,6 +558,20 @@ SIM808_HTTP_Set_Param(char *param)
 {
     DEBUG_INFO("Setting HTTP Parameter: %s...", param);
     return SIM808_SendAT(param, SIM808_HTTP_SET_PARAM, 100);
+}
+
+static ErrorType_t
+SIM808_HTTP_Get(void)
+{
+    DEBUG_INFO("Sending HTTP GET Request...");
+    return SIM808_SendAT(NULL, SIM808_HTTP_GET, 1000);
+}
+
+static ErrorType_t
+SIM808_HTTP_read_server_data(void)
+{
+    DEBUG_INFO("Reading HTTP Server response...");
+    return SIM808_SendAT(NULL, SIM808_HTTP_READ_SERVER_DATA, 100);
 }
 
 static ErrorType_t
@@ -647,22 +677,31 @@ SIM808_CMGF_resp(char *resp)
     return status;
 }
 
-static bool
-SIM808_GetSMS(void)
+static SMS_action_t
+SIM808_get_sms_action(void)
 {
     ErrorType_t status = SIM808_Error;
+    SMS_action_t ret = NONE;
     char CMTI_resp[MAX_COMMAND_INPUT_LENGTH] = {0};
-    char sms[100 + 1] = {0};
+    char sms[50] = {0};
+    /* Get CMTI input */
     UART_GetData(CMTI_resp);
     debug_printf("%s\r\n", CMTI_resp);
-    status = SIM808_parseSMS(CMTI_resp, sms, 100);
+    status = SIM808_parseSMS(CMTI_resp, sms, sizeof(sms) - 1);
     debug_printf("trebao bih isprintati sms: %s\r\n", sms);
-    if (STR_COMPARE(sms, "START") == 0)
+    if (STR_COMPARE(sms, "POST") == 0)
     {
-        return true;
+        ret = HTTP_POST;
     }
-    return false;
-    //status = SIM808_parseNumber(CLIP_resp, &CallNumber);
+    else if (STR_COMPARE(sms, "GET") == 0)
+    {
+        ret = HTTP_GET;
+    }
+    else if (STR_COMPARE(sms, "TCP") == 0)
+    {
+        ret = TCP_REQUEST;
+    }
+    return ret;
 }
 
 static ErrorType_t
@@ -679,6 +718,7 @@ SIM808_parseSMS(char *resp, char *sms, size_t sms_max_len)
     sms_index = strchr(pos, ',');
     sms_index++;
     SIM808_readSMS(sms, sms_index, sms_max_len);
+    SIM808_SMS_Delete(sms_index);
     return true;
 }
 
@@ -691,7 +731,7 @@ SIM808_readSMS(char *sms, char *sms_index, size_t sms_max_len)
     char delim[] = "\"";
     int i = 0;
     size_t sms_len = 0;
-    SIM808_SendAT(sms_index, SMS_READ, 100);
+    SIM808_SendAT(sms_index, SIM808_SMS_READ, 100);
     UART_GetData(buf);
     debug_printf("%s\r\n", buf);
     pos = strstr(buf, "+CMGR: ");
@@ -717,8 +757,14 @@ SIM808_readSMS(char *sms, char *sms_index, size_t sms_max_len)
         return;
     }
     sms_len = strlen(token[7]);
-    token[7][sms_len - 2] = '\0';
-    memmove(sms, token[7], sms_max_len);
+    sms_len -= strlen("OK");    /* Do not count OK at the end (response from SIM808) */
+    if (sms_len > sms_max_len)
+    {
+        DEBUG_ERROR("SMS action too long! Aborting...");
+        return;
+    }
+    token[7][sms_len] = '\0';
+    memmove(sms, token[7], sms_len);
 }
 
 /* Ex. +CLIP: "+989108793902",145,"",0,"",0 */
@@ -829,17 +875,91 @@ ErrorType_t
 SIM808_SendSMS(char *message)
 {
     ErrorType_t status = Ok;
-    if ((status = SIM808_SendAT(number.num, SET_NUMBER, 1000)))
+    if ((status = SIM808_SendAT(number.num, SIM808_SMS_SET_NUMBER, 1000)))
     {
         vTaskDelay(100);
         //return status;
     }
     vTaskDelay(3000);
-    if ((status = SIM808_SendAT(message, SMS_TEXT, 1000)))
+    if ((status = SIM808_SendAT(message, SIM808_SMS_TEXT, 1000)))
     {
         return status;
     }
     return status;
+}
+
+static void
+SIM808_Configure_Bearer(void)
+{
+    static bool initialized = false;
+    if (initialized == false)
+    {
+        SIM808_Bearer_Configure("\"Contype\",\"GPRS\"");
+        SIM808_Bearer_Configure("\"APN\",\"tomato\"");
+        initialized = true;
+    }
+}
+
+static void
+SIM808_send_GET_request(void)
+{
+    char msg[400] = {0};
+    SIM808_Configure_Bearer();
+    /* Bearer Configure */
+    SIM808_Bearer_Open_GPRS_Context();
+    /* HTTP GET */
+    SIM808_HTTP_Init();
+    vTaskDelay(30);
+    vTaskDelay(30);
+    SIM808_HTTP_Set_Param("\"CID\",1");
+    SIM808_HTTP_Set_Param(HTTP_URL);
+    SIM808_HTTP_Set_Param("\"CONTENT\",\"application/json\"");
+    vTaskDelay(30);
+    SIM808_HTTP_Get();
+    vTaskDelay(3000);
+    SIM808_HTTP_read_server_data();
+    UART_GetData(msg);
+    SIM808_HTTP_Terminate();
+    SIM808_Bearer_Close_GPRS_Context();
+    debug_printf("received info: %s\r\n", msg);
+}
+
+static void
+SIM808_send_POST_request(void)
+{
+    char msg[100] = {0};
+    strcpy(msg, "{\"name\": \"beeSmart\", \"serial_number\": \"1111-2222-3333-4444\"}");
+    SIM808_Configure_Bearer();
+    /* Bearer Configure */
+    SIM808_Bearer_Open_GPRS_Context();
+    /* HTTP GET */
+    SIM808_HTTP_Init();
+    vTaskDelay(50);
+    SIM808_HTTP_Set_Param("\"CID\",1");
+    SIM808_HTTP_Set_Param(HTTP_URL);
+    SIM808_HTTP_Set_Param("\"CONTENT\",\"application/json\"");
+    vTaskDelay(30);
+    SIM808_HTTP_Pepare_POST_data(strlen(msg), 50000);
+    SIM808_HTTP_Post();
+    vTaskDelay(3000);
+    SIM808_HTTP_Terminate();
+    SIM808_Bearer_Close_GPRS_Context();
+    debug_printf("sent post req: %s\r\n", msg);
+}
+
+static void
+SIM808_send_TCP_request(void)
+{
+    char received_data[400]= {0};
+    debug_printf("Preparing to send TCP request\r\n");
+    SIM808_Start_TCP_Conn("\"TCP\",\"0.tcp.ngrok.io\",\"17908\"");
+    vTaskDelay(30);
+    SIM808_SendTCP_Packet("POST /newtasks HTTP/1.1\r\nHOST: 0.tcp.ngrok.io/api/v1/site/new\r\nAccept: application/json\r\nContent-Type: application/json\r\nContent-Length: 23\r\n\r\n{\"RPM\":\"55\",\"ECT\":\"55\"}\r\n\n");
+    vTaskDelay(3000);
+    UART_GetData(received_data);
+    debug_printf("###### RECEIVDED DATA: %s", received_data);
+
+
 }
 
 static bool
