@@ -29,11 +29,27 @@
 
 #define MAXCOUNT(s) (sizeof(s)/(sizeof(s[0])))
 
+#define MAX_NUM_SIZE 30
+#define NUM_TYPE_SIZE 3
+
 typedef enum {
 	CALLTask = 1,
 	ADCTask,
 	SMSTask
 } _TaskId;
+
+typedef enum {
+    Unknown_type = 129,
+    National_type = 161,
+    International_type = 145,
+    Net_specific_type = 177
+} num_type_t;
+
+struct number_t {
+    num_type_t type;
+    uint8_t crc;
+    char num[MAX_NUM_SIZE];
+} __attribute__((__packed__));
 
 void debug_init();
 void debug_printf(const char *fmt, ...);
@@ -42,5 +58,6 @@ void debug_printf(const char *fmt, ...);
 
 void _setSignal(_TaskId, int32_t);
 int put_data(char **, const char *, int);
+uint8_t gencrc(uint8_t *, size_t);
 
 #endif /* BASE_INC_UTIL_H_ */

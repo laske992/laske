@@ -60,9 +60,7 @@ osThreadId CallTaskHandle;
 osThreadId SMSTaskHandle;
 osThreadId ADCTaskHandle;
 
-static void _SIM808_SetupTask(void const *argument);
 static void _HandleCallTask(void const *argument);
-static void _SMSTask(void const *argument);
 static void _ADCTask(void const *argument);
 
 int main(void)
@@ -75,18 +73,11 @@ int main(void)
 	ADC_Init();
 
 	/* Create the thread(s) */
-	/* SIM808 initial setup task */
-//	osThreadDef(SIM808_SetupTask, _SIM808_SetupTask, osPriorityLow, 0, configMINIMAL_STACK_SIZE + 300);
-//	SIM808_SetupTaskHandle = osThreadCreate(osThread(SIM808_SetupTask), NULL);
 
 	/* Incoming call handle task */
 	osThreadDef(HandleCallTask, _HandleCallTask, osPriorityNormal, 0, 1000);
 	CallTaskHandle = osThreadCreate(osThread(HandleCallTask), NULL);
 
-//	/* Prepare and send SMS task */
-//	osThreadDef(SMSTask, _SMSTask, osPriorityNormal, 0, 500);
-//	SMSTaskHandle = osThreadCreate(osThread(SMSTask), NULL);
-//
 	/* Measurement task */
 	osThreadDef(ADCTask, _ADCTask, osPriorityNormal, 0, 600);
 	ADCTaskHandle = osThreadCreate(osThread(ADCTask), NULL);
@@ -117,20 +108,6 @@ void _setSignal(_TaskId TaskId, int32_t bit)
 	osSignalSet(Thread, bit);
 }
 
-///* _SIM808_SetupTask function */
-//static void _SIM808_SetupTask(void const * argument)
-//{
-//	SIM808_Init();
-//	/* Infinite loop */
-//	for(;;)
-//	{
-////		vTaskDelay(500);
-////		LED_Toggle();
-//	}
-//	/* Should not reach this point */
-////	vTaskDelete(SIM808_SetupTaskHandle);
-//}
-
 /* Handle incoming call function */
 static void _HandleCallTask(void const * argument)
 {
@@ -154,17 +131,6 @@ static void _HandleCallTask(void const * argument)
     }
     /* Should not reach this point */
 //    vTaskDelete(CallTaskHandle);
-}
-
-/* Prepare and send SMS function */
-static void _SMSTask(void const * argument)
-{
-	/* Infinite loop */
-	for(;;)
-	{
-	}
-	/* Should not reach this point */
-//	vTaskDelete(SMSTaskHandle);
 }
 
 /* Prepare measurement data for SMS */

@@ -7,12 +7,8 @@
 #include "config.h"
 #include "usb_device.h"
 
-void USB_Init(void) {
-	USB_GPIOInit();
-	MX_USB_DEVICE_Init();
-}
-
-void USB_GPIOInit(void) {
+void USB_GPIOInit(void)
+{
 
 	GPIO_InitTypeDef GPIO_InitStruct;
 
@@ -27,14 +23,22 @@ void USB_GPIOInit(void) {
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 }
 
-void USB_DeInit(void) {
+void USB_Init(void)
+{
+    USB_GPIOInit();
+    MX_USB_DEVICE_Init();
+}
+
+void USB_GPIODeInit(void)
+{
+    HAL_GPIO_DeInit(USB_DETECT_GPIO_Port, USB_DETECT_Pin);
+    HAL_NVIC_DisableIRQ(EXTI9_5_IRQn);
+}
+
+void USB_DeInit(void)
+{
 
 	USB_GPIODeInit();
 	MX_USB_DEVICE_DeInit();
-}
-
-void USB_GPIODeInit(void) {
-	HAL_GPIO_DeInit(USB_DETECT_GPIO_Port, USB_DETECT_Pin);
-	HAL_NVIC_DisableIRQ(EXTI9_5_IRQn);
 }
 

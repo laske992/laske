@@ -8,8 +8,6 @@
 #include "sim808.h"
 
 /* Private define ------------------------------------------------------------*/
-#define MAX_NUM_SIZE 30
-#define NUM_TYPE_SIZE 3
 #define SIM808_ENTER ("\r\n")
 #define CTRL_Z (0x1A)		/* CTRL + Z */
 
@@ -17,12 +15,6 @@
 
 /* Private typedef -----------------------------------------------------------*/
 typedef ErrorType_t (SIM808_parseResp)(char *);
-typedef enum {
-    Unknown_type = 129,
-    National_type = 161,
-    International_type = 145,
-    Net_specific_type = 177
-} num_type_t;
 
 struct sim808_req {
     const char *cmd;
@@ -30,11 +22,6 @@ struct sim808_req {
     SIM808_checkResp *cb;
     SIM808_parseResp *parse_cb;
 };
-
-struct number_t {
-    num_type_t type;
-    char num[MAX_NUM_SIZE];
-} __attribute__((__packed__));
 
 typedef enum {
     NONE = 0,
@@ -98,7 +85,7 @@ uint32_t tim4_ticks;
 /* Private function prototypes -----------------------------------------------*/
 static void SIM808_PowerOn();
 static SMS_action_t SIM808_get_sms_action();
-static ErrorType_t SIM808_parseSMS(char *, char *, size_t);
+static void SIM808_parseSMS(char *, char *, size_t);
 static void SIM808_readSMS(char *, char *, size_t);
 static bool SIM808_GetNumber();
 static ErrorType_t SIM808_parseNumber(char *, struct number_t *);
@@ -193,9 +180,7 @@ SIM808_Init(void)
     int8_t attempts = 3;
     UART_Enable(RX_EN, TX_EN);
     SIM808_PowerOn();
-    //	if (!(numberMemorized = SIM808_readEEPROMNumber())) {
-    //		SIM808_forgetNumber();
-    //	}
+    numberMemorized = SIM808_readEEPROMNumber();
     do {
         vTaskDelay(40);
         if ((status = SIM808_DisableEcho())) continue;
@@ -578,7 +563,7 @@ static ErrorType_t
 SIM808_HTTP_Pepare_POST_data(size_t size, uint32_t max_latency_time)
 {
     char msg[20] = {0};
-    snprintf(msg, sizeof msg, "%d,%d", size, max_latency_time);
+    snprintf(msg, sizeof msg, "%d,%ld", size, max_latency_time);
     return SIM808_SendAT(msg, SIM808_HTTP_PREPARE_HTTP_POST, 100);
 }
 
@@ -680,14 +665,13 @@ SIM808_CMGF_resp(char *resp)
 static SMS_action_t
 SIM808_get_sms_action(void)
 {
-    ErrorType_t status = SIM808_Error;
     SMS_action_t ret = NONE;
     char CMTI_resp[MAX_COMMAND_INPUT_LENGTH] = {0};
     char sms[50] = {0};
     /* Get CMTI input */
     UART_GetData(CMTI_resp);
     debug_printf("%s\r\n", CMTI_resp);
-    status = SIM808_parseSMS(CMTI_resp, sms, sizeof(sms) - 1);
+    SIM808_parseSMS(CMTI_resp, sms, sizeof(sms) - 1);
     debug_printf("trebao bih isprintati sms: %s\r\n", sms);
     if (STR_COMPARE(sms, "POST") == 0)
     {
@@ -704,7 +688,7 @@ SIM808_get_sms_action(void)
     return ret;
 }
 
-static ErrorType_t
+static void
 SIM808_parseSMS(char *resp, char *sms, size_t sms_max_len)
 {
     char *pos;
@@ -713,13 +697,12 @@ SIM808_parseSMS(char *resp, char *sms, size_t sms_max_len)
     if (pos == NULL)
     {
         DEBUG_ERROR("SMS not received!");
-        return false;
+        return;
     }
     sms_index = strchr(pos, ',');
     sms_index++;
     SIM808_readSMS(sms, sms_index, sms_max_len);
     SIM808_SMS_Delete(sms_index);
-    return true;
 }
 
 static void
@@ -788,6 +771,8 @@ SIM808_parseNumber(char *resp, struct number_t *num)
     }
     /* num is inside "" */
     strncpy(num->num, start, (size_t)len);
+    /* Generate number CRC */
+    num->crc = gencrc((uint8_t *)num->num, strlen(num->num));
     /* Get number type */
     end++;
     strncpy(type, end, NUM_TYPE_SIZE);
@@ -800,7 +785,7 @@ SIM808_GetNumber(void)
 {
     ErrorType_t status = SIM808_Error;
     char CLIP_resp[MAX_COMMAND_INPUT_LENGTH] = {0};
-    struct number_t CallNumber = {.type = 0, .num = {0}};
+    struct number_t CallNumber = {.type = 0, .crc = 0, .num = {0}};
     UART_GetData(CLIP_resp);
     debug_printf("%s\r\n", CLIP_resp);
     status = SIM808_parseNumber(CLIP_resp, &CallNumber);
@@ -837,10 +822,13 @@ SIM808_memorizeNumber(struct number_t *num)
     {
         return;
     }
-    //	if (!storage_write((void *)num, STORAGE_NUMBER_ADDR, sizeof(struct number_t))) {
-    //		/* Write failed */
-    //		return;
-    //	}
+    DEBUG_INFO("Memorizing number: %s", num->num);
+    if (!storage_save_number(num))
+    {
+        DEBUG_ERROR("Number not memorized!");
+        /* Write failed */
+        return;
+    }
     memcpy(&number, num, sizeof(struct number_t));
     numberMemorized = true;
 }
@@ -848,11 +836,22 @@ SIM808_memorizeNumber(struct number_t *num)
 static bool
 SIM808_readEEPROMNumber(void)
 {
+    uint8_t read_crc;
+    uint8_t calc_crc;
+    struct number_t num = {.type = 0, .crc = 0, .num = {0}};
     /* Get data from EEPROM */
-    storage_read(&number, STORAGE_NUMBER_ADDR, sizeof(struct number_t));
+    storage_get_number(&num);
 
+    /* Validate crc */
+    read_crc = num.crc;
+    calc_crc = gencrc((uint8_t *)num.num, strlen(num.num));
+    if (read_crc != calc_crc)
+    {
+        DEBUG_ERROR("CRC mismatch!");
+        return false;
+    }
     /* Validate number by number type */
-    switch(number.type) {
+    switch(num.type) {
     case Unknown_type:
     case Net_specific_type:
         return false;
@@ -862,6 +861,8 @@ SIM808_readEEPROMNumber(void)
     default:
         return false;
     }
+    DEBUG_INFO("Read stored number: %s", num.num);
+    memcpy(&number, &num, sizeof(struct number_t));
     return true;
 }
 
