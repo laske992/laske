@@ -13,19 +13,19 @@
 #include <stdint.h>
 #include "stm32l1xx_hal.h"
 
-#define SIM_RI_IRQ_SMS	( 1 << 0 )
-#define SIM_RI_IRQ_CALL	( 1 << 1 )
-#define BIT_2	( 1 << 2 )
+#define SIGNAL_SIM_RI_IRQ_SMS  ( 1 << 0 )
+#define SIGNAL_SIM_RI_IRQ_CALL ( 1 << 1 )
+#define SIGNAL_START_ADC       ( 1 << 2 )
 #define MAX_AT_CMD_LEN 558  /* AT + 556 cmd chars */
 
 #define PUT_BYTE(p, byte) \
-	*(p) = (byte); (p)++
+        *(p) = (byte); (p)++
 
 #define TO_DIGIT(p) \
-	(((p) > '0' && (p) < '9') ? ((p) - 48) : (p))
+        (((p) > '0' && (p) < '9') ? ((p) - 48) : (p))
 
 #define STR_COMPARE(s1, s2) \
-	strncmp((char *)(s1), (char *)(s2), strlen((char *)(s2)))
+        strncmp((char *)(s1), (char *)(s2), strlen((char *)(s2)))
 
 #define MAXCOUNT(s) (sizeof(s)/(sizeof(s[0])))
 
@@ -33,9 +33,8 @@
 #define NUM_TYPE_SIZE 3
 
 typedef enum {
-	CALLTask = 1,
-	ADCTask,
-	SMSTask
+    SIM808Task = 1,
+    ADCTask
 } _TaskId;
 
 typedef enum {

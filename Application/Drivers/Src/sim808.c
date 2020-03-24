@@ -243,7 +243,7 @@ SIM808_handleCall(void)
     {
         //SIM808_SendSMS("Hello World!");
         /* Start Measurement task */
-        _setSignal(ADCTask, BIT_2);
+        _setSignal(ADCTask, SIGNAL_START_ADC);
     }
 }
 
@@ -1018,7 +1018,7 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
             if ((HAL_GetTick() - ticks) < 120)
             {
                 /* If SIM_RI was less than 120ms low, SIM808 received an SMS */
-                _setSignal(CALLTask, SIM_RI_IRQ_SMS);
+                _setSignal(SIM808Task, SIGNAL_SIM_RI_IRQ_SMS);
             }
             /* Restart the timestamp */
             ticks = 0;
@@ -1041,6 +1041,6 @@ TIM4_IRQHandler(void)
 
         SIM808_Timer4Stop();
         /* Give signal to Call task */
-        _setSignal(CALLTask, SIM_RI_IRQ_CALL);
+        _setSignal(SIM808Task, SIGNAL_SIM_RI_IRQ_CALL);
     }
 }

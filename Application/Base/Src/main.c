@@ -55,97 +55,92 @@
 #include "sim808.h"
 #include "util.h"
 
-osThreadId SIM808_SetupTaskHandle;
-osThreadId CallTaskHandle;
-osThreadId SMSTaskHandle;
+osThreadId SIM808TaskHandle;
 osThreadId ADCTaskHandle;
 
-static void _HandleCallTask(void const *argument);
-static void _ADCTask(void const *argument);
+static void _HandleSIM808Task(void const *);
+static void _ADCTask(void const *);
 
 int main(void)
 {
     debug_init();
-	CONFIG_Init();
-	LED_Init();
-	UART_Init();
-	SIM808_GPIOInit();
-	ADC_Init();
+    CONFIG_Init();
+    LED_Init();
+    UART_Init();
+    SIM808_GPIOInit();
+    ADC_Init();
 
-	/* Create the thread(s) */
+    /* Create the thread(s) */
 
-	/* Incoming call handle task */
-	osThreadDef(HandleCallTask, _HandleCallTask, osPriorityNormal, 0, 1000);
-	CallTaskHandle = osThreadCreate(osThread(HandleCallTask), NULL);
+    /* Incoming call handle task */
+    osThreadDef(HandleSIM808Task, _HandleSIM808Task, osPriorityNormal, 0, 1000);
+    SIM808TaskHandle = osThreadCreate(osThread(HandleSIM808Task), NULL);
 
-	/* Measurement task */
-	osThreadDef(ADCTask, _ADCTask, osPriorityNormal, 0, 600);
-	ADCTaskHandle = osThreadCreate(osThread(ADCTask), NULL);
+    /* Measurement task */
+    osThreadDef(ADCTask, _ADCTask, osPriorityNormal, 0, 600);
+    ADCTaskHandle = osThreadCreate(osThread(ADCTask), NULL);
 
-	/* Start scheduler */
-	osKernelStart();
+    /* Start scheduler */
+    osKernelStart();
 
-	for(;;);
+    for(;;);
 
 }
 
 void _setSignal(_TaskId TaskId, int32_t bit)
 {
-	osThreadId Thread;
-	switch(TaskId) {
-	case CALLTask:
-		Thread = CallTaskHandle;
-		break;
-	case ADCTask:
-		Thread = ADCTaskHandle;
-		break;
-	case SMSTask:
-		Thread = SMSTaskHandle;
-		break;
-	default:
-		return;
-	}
-	osSignalSet(Thread, bit);
+    osThreadId Thread;
+    switch(TaskId) {
+    case SIM808Task:
+        Thread = SIM808TaskHandle;
+        break;
+    case ADCTask:
+        Thread = ADCTaskHandle;
+        break;
+    default:
+        return;
+    }
+    osSignalSet(Thread, bit);
 }
 
 /* Handle incoming call function */
-static void _HandleCallTask(void const * argument)
+static void _HandleSIM808Task(void const * argument)
 {
     osEvent event;
-    uint32_t signals = SIM_RI_IRQ_CALL | SIM_RI_IRQ_SMS;
+    uint32_t signals = SIGNAL_SIM_RI_IRQ_CALL | SIGNAL_SIM_RI_IRQ_SMS;
     SIM808_Init();
     for(;;)
     {
         /* Wait any of signals */
         event = osSignalWait(signals, osWaitForever);
-        if (event.value.signals & SIM_RI_IRQ_CALL)
+        if (event.value.signals & SIGNAL_SIM_RI_IRQ_CALL)
         {
             DEBUG_INFO("IRQ Call kicked");
             SIM808_handleCall();
         }
-        else if (event.value.signals & SIM_RI_IRQ_SMS)
+        else if (event.value.signals & SIGNAL_SIM_RI_IRQ_SMS)
         {
             DEBUG_INFO("IRQ SMS kicked");
             SIM808_handleSMS();
         }
     }
     /* Should not reach this point */
-//    vTaskDelete(CallTaskHandle);
+    vTaskDelete(SIM808TaskHandle);
 }
 
 /* Prepare measurement data for SMS */
 static void _ADCTask(void const *argument)
 {
-	osEvent event;
-	for(;;)
-	{
-		/* Wait signal from CallHandleTask */
-		event = osSignalWait(BIT_2, osWaitForever);
-		if (event.value.signals & BIT_2)
-		{
-			ADC_startMeasurement();
-		}
-	}
-	/* Should not reach this point */
-//	vTaskDelete(ADCTaskHandle);
+    osEvent event;
+    for(;;)
+    {
+        /* Wait signal from SIM808HandleTask */
+        event = osSignalWait(SIGNAL_START_ADC, osWaitForever);
+        if (event.value.signals & SIGNAL_START_ADC)
+        {
+            ADC_startMeasurement();
+        }
+    }
+    /* Should not reach this point */
+    vTaskDelete(ADCTaskHandle);
 }
