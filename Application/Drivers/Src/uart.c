@@ -155,7 +155,7 @@ UART_Send(uint8_t *data, uint16_t timeout, uint8_t req_id, SIM808_checkResp *cal
     if (callback)
     {
         /* Parse reply */
-        UART_GetData(sim808reply);
+        UART_GetData(sim808reply, 3000);
         debug_printf("Received: %s\r\n", sim808reply);
         status = callback(sim808reply, req_id);
     }
@@ -164,10 +164,10 @@ UART_Send(uint8_t *data, uint16_t timeout, uint8_t req_id, SIM808_checkResp *cal
 }
 
 void
-UART_GetData(char *data)
+UART_GetData(char *data, uint32_t timeout)
 {
     /* Wait to get the answer from sim808 */
-    if (xSemaphoreTake(rxBinarySemaphore, 1000) == pdFALSE)
+    if (xSemaphoreTake(rxBinarySemaphore, (TickType_t) timeout) == pdFALSE)
     {
         return;
     }

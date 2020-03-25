@@ -26,7 +26,7 @@ void UART_Init(void);
 void UART_DeInit(void);
 void UART_Enable (uint8_t, uint8_t);
 ErrorType_t UART_Send(uint8_t *, uint16_t, uint8_t, SIM808_checkResp *);
-void UART_GetData(char *);
+void UART_GetData(char *, uint32_t);
 void UART_FlushQueues();
 
 #endif /* DRIVERS_INC_UART_H_ */

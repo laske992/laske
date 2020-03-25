@@ -6,6 +6,7 @@
  */
 
 #include "sim808.h"
+#include "json.h"
 
 /* Private define ------------------------------------------------------------*/
 #define SIM808_ENTER ("\r\n")
@@ -34,6 +35,8 @@ enum {
     SIM808_SAVE_SETTINGS = 0,
     SIM808_DISABLE_ECHO,
     SIM808_PING,
+    SIM808_TO_COMMAND_MODE,
+    SIM808_TO_DATA_MODE,
     SIM808_CHECK_SIM,
     SIM808_REG_HOME_NETWORK,
     SIM808_CHECK_HOME_NETWORK,
@@ -54,7 +57,9 @@ enum {
     SIM808_SET_APN,
     SIM808_BRING_UP_GPRS,
     SIM808_GET_LOCAL_IP,
+    SIM808_DEACTIVATE_GRPS_CONTEXT,
     SIM808_START_TCP_IP_CONN,
+    SIM808_CLOSE_TCP_IP_CONN,
     SIM808_PREPARE_TCP_PACKET,
     SIM808_SEND_TCP_PACKET,
     SIM808_BEARER_CONFIGURE,
@@ -107,7 +112,9 @@ static ErrorType_t SIM808_Get_GPRS_Status();
 static ErrorType_t SIM808_Set_APN();
 static ErrorType_t SIM808_BringUp_GPRS();
 static ErrorType_t SIM808_Get_Local_IP();
+static ErrorType_t SIM808_Deactivate_GRPS_Context();
 static ErrorType_t SIM808_Start_TCP_Conn(char *);
+static ErrorType_t SIM808_Close_TCP_Conn();
 static ErrorType_t SIM808_Bearer_Configure(char *);
 static ErrorType_t SIM808_Bearer_Open_GPRS_Context();
 static ErrorType_t SIM808_Bearer_Close_GPRS_Context();
@@ -128,6 +135,7 @@ static ErrorType_t SIM808_CMGF_resp(char *);
 static void SIM808_send_GET_request();
 static void SIM808_send_POST_request();
 static void SIM808_send_TCP_request();
+static void SIM808_process_TCP_response(char *);
 static void SIM808_Timer4Start();
 static void SIM808_Timer4Stop();
 static void SIM808_EnableIRQs();
@@ -136,6 +144,8 @@ static const struct sim808_req sim808_req[] = {
         {"AT&W", "OK", SIM808_check_resp, NULL},
         {"ATE0", "OK", SIM808_check_resp, NULL},     /* ATE0 */
         {"AT", "OK", SIM808_check_resp, NULL},        /* AT */
+        {"+++", "OK", SIM808_check_resp, NULL},     /* Switch to the command mode */
+        {"ATO0", NULL, NULL, NULL},                 /* Switch to data mode */
         {"AT+CCID=?", "OK", SIM808_check_resp, NULL},        /* AT+CCID=? */
         {"AT+CREG=1", "OK", SIM808_check_resp, NULL},     /* AT+CREG=1 */
         {"AT+CREG?", "+CREG: ", SIM808_check_resp, SIM808_CREG_resp},      /* AT+CREG? */
@@ -156,7 +166,9 @@ static const struct sim808_req sim808_req[] = {
         {"AT+CSTT=", "OK", SIM808_check_resp, NULL},    /* Set APN */
         {"AT+CIICR", "OK", SIM808_check_resp, NULL},    /* Bring up GPRS */
         {"AT+CIFSR", NULL, NULL, NULL},                 /* Get local IP address */
-        {"AT+CIPSTART=", "OKCONNECT OK", SIM808_check_resp, NULL},  /* Start up TCP/IP connection */
+        {"AT+CIPSHUT", "SHUT OK", SIM808_check_resp, NULL}, /* Deactivate GPRS Context */
+        {"AT+CIPSTART=", "OK", SIM808_check_resp, NULL},  /* Start up TCP/IP connection */
+        {"AT+CIPCLOSE", "CLOSE OK", SIM808_check_resp, NULL},  /* Close TCP/IP connection */
         {"AT+CIPSEND", ">", SIM808_check_resp, NULL},   /* Start sending data to server */
         {NULL, "SEND OK", SIM808_check_resp, NULL},     /* Send data to server */
         {"AT+SAPBR=3,1,", "OK", SIM808_check_resp, NULL},   /* Configuring Bearer profile 1 */
@@ -241,7 +253,7 @@ SIM808_handleCall(void)
     /* Get CLIP input while RING */
     if (SIM808_GetNumber())
     {
-        //SIM808_SendSMS("Hello World!");
+//        SIM808_SendSMS("Hello\r\nWorld\r\n!");
         /* Start Measurement task */
         _setSignal(ADCTask, SIGNAL_START_ADC);
     }
@@ -481,9 +493,16 @@ SIM808_Get_Local_IP(void)
     char ip_addr[16] = {0};
     DEBUG_INFO("Getting Local IP address...");
     SIM808_SendAT(NULL, SIM808_GET_LOCAL_IP, 100);
-    UART_GetData(ip_addr);
+    UART_GetData(ip_addr, 1000);
     DEBUG_INFO("IP address: %s", ip_addr);
     return Ok;
+}
+
+static ErrorType_t
+SIM808_Deactivate_GRPS_Context(void)
+{
+    DEBUG_INFO("Deactivating GRPS context...");
+    return SIM808_SendAT(NULL, SIM808_DEACTIVATE_GRPS_CONTEXT, 100);
 }
 
 static ErrorType_t
@@ -491,6 +510,13 @@ SIM808_Start_TCP_Conn(char *params)
 {
     DEBUG_INFO("Starting TCP/IP connection...");
     return SIM808_SendAT(params, SIM808_START_TCP_IP_CONN, 100);
+}
+
+static ErrorType_t
+SIM808_Close_TCP_Conn(void)
+{
+    DEBUG_INFO("Closing TCP/IP connection...");
+    return SIM808_SendAT(NULL, SIM808_CLOSE_TCP_IP_CONN, 100);
 }
 
 ErrorType_t
@@ -502,7 +528,7 @@ SIM808_SendTCP_Packet(char *message)
         DEBUG_ERROR("Can not send TCP packet");
         return status;
     }
-    vTaskDelay(1000);
+    vTaskDelay(2000);
     if ((status = SIM808_SendAT(message, SIM808_SEND_TCP_PACKET, 1000)))
     {
         return status;
@@ -669,7 +695,7 @@ SIM808_get_sms_action(void)
     char CMTI_resp[MAX_COMMAND_INPUT_LENGTH] = {0};
     char sms[50] = {0};
     /* Get CMTI input */
-    UART_GetData(CMTI_resp);
+    UART_GetData(CMTI_resp, 1500);
     debug_printf("%s\r\n", CMTI_resp);
     SIM808_parseSMS(CMTI_resp, sms, sizeof(sms) - 1);
     debug_printf("trebao bih isprintati sms: %s\r\n", sms);
@@ -715,7 +741,7 @@ SIM808_readSMS(char *sms, char *sms_index, size_t sms_max_len)
     int i = 0;
     size_t sms_len = 0;
     SIM808_SendAT(sms_index, SIM808_SMS_READ, 100);
-    UART_GetData(buf);
+    UART_GetData(buf, 1000);
     debug_printf("%s\r\n", buf);
     pos = strstr(buf, "+CMGR: ");
     if (pos == NULL)
@@ -786,7 +812,7 @@ SIM808_GetNumber(void)
     ErrorType_t status = SIM808_Error;
     char CLIP_resp[MAX_COMMAND_INPUT_LENGTH] = {0};
     struct number_t CallNumber = {.type = 0, .crc = 0, .num = {0}};
-    UART_GetData(CLIP_resp);
+    UART_GetData(CLIP_resp, 1000);
     debug_printf("%s\r\n", CLIP_resp);
     status = SIM808_parseNumber(CLIP_resp, &CallNumber);
     if (status != Ok)
@@ -919,7 +945,7 @@ SIM808_send_GET_request(void)
     SIM808_HTTP_Get();
     vTaskDelay(3000);
     SIM808_HTTP_read_server_data();
-    UART_GetData(msg);
+    UART_GetData(msg, 2000);
     SIM808_HTTP_Terminate();
     SIM808_Bearer_Close_GPRS_Context();
     debug_printf("received info: %s\r\n", msg);
@@ -952,15 +978,33 @@ static void
 SIM808_send_TCP_request(void)
 {
     char received_data[400]= {0};
+    char connection_status[20] = {0};
     debug_printf("Preparing to send TCP request\r\n");
-    SIM808_Start_TCP_Conn("\"TCP\",\"0.tcp.ngrok.io\",\"17908\"");
-    vTaskDelay(30);
-    SIM808_SendTCP_Packet("POST /newtasks HTTP/1.1\r\nHOST: 0.tcp.ngrok.io/api/v1/site/new\r\nAccept: application/json\r\nContent-Type: application/json\r\nContent-Length: 23\r\n\r\n{\"RPM\":\"55\",\"ECT\":\"55\"}\r\n\n");
-    vTaskDelay(3000);
-    UART_GetData(received_data);
-    debug_printf("###### RECEIVDED DATA: %s", received_data);
+    SIM808_Deactivate_GRPS_Context();
+    SIM808_Start_TCP_Conn("\"TCP\",\"0.tcp.ngrok.io\",\"13180\"");
+    UART_GetData(connection_status, 4000);
+    debug_printf("connection status = %s\r\n", connection_status);
+    if (strstr(connection_status, "CONNECT OK") == NULL)
+    {
+        DEBUG_ERROR("TCP/IP connection not established!");
+        goto out;
+    }
+    /* api/v1/site/new */
+    SIM808_SendTCP_Packet("POST /home HTTP/1.1\r\nHOST: 0.tcp.ngrok.io\r\nAccept: application/json\r\nContent-Type: application/json\r\nContent-Length: 23\r\n\r\n{\"RPM\":\"55\",\"ECT\":\"55\"}\r\n\n");
+    UART_GetData(received_data, 4000);
+    debug_printf("###### RECEIVDED DATA: %s\r\n", received_data);
+    SIM808_process_TCP_response(received_data);
+    out:
+    SIM808_Close_TCP_Conn();
+    SIM808_Deactivate_GRPS_Context();
+}
 
-
+static void
+SIM808_process_TCP_response(char *msg)
+{
+    struct json_values_t json_values = {.key = {0}, .value = {0}};
+    json_process(msg, &json_values);
+    debug_printf("key = %s\r\nvalue = %s\r\n", json_values.key, json_values.value);
 }
 
 static bool
@@ -1002,6 +1046,7 @@ void
 HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
     static uint32_t ticks = 0;
+    uint32_t diff_ticks;
     if (GPIO_Pin == SIM_RI_Pin)
     {
         if (HAL_GPIO_ReadPin(GPIOB, SIM_RI_Pin) == GPIO_PIN_RESET)
@@ -1015,7 +1060,8 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         {
             /* Stop the timer when SIM_RI goes back (high) */
             SIM808_Timer4Stop();
-            if ((HAL_GetTick() - ticks) < 120)
+            diff_ticks = HAL_GetTick() - ticks;
+            if (diff_ticks > 95 && diff_ticks < 120)
             {
                 /* If SIM_RI was less than 120ms low, SIM808 received an SMS */
                 _setSignal(SIM808Task, SIGNAL_SIM_RI_IRQ_SMS);
