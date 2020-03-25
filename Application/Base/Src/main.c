@@ -64,7 +64,7 @@ static void _ADCTask(void const *);
 int main(void)
 {
     debug_init();
-    CONFIG_Init();
+    config_init();
     LED_Init();
     UART_Init();
     SIM808_GPIOInit();

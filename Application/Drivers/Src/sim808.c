@@ -242,7 +242,7 @@ SIM808_handleSMS(void)
         SIM808_send_TCP_request();
         break;
     default:
-        DEBUG_ERROR("Unknow SMS action!");
+        DEBUG_ERROR("Unknown SMS action!");
         break;
     }
 }

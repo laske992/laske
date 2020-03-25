@@ -17,41 +17,38 @@
 #include "semphr.h"
 
 typedef enum {
-	Ok = 0,
-	UART_Error = 1,
-	SIM808_Error = 2,
-	FreeRTOS_Error = 3,
-	ADC_Error = 4
-}ErrorType_t;
+    Ok = 0,
+    UART_Error = 1,
+    SIM808_Error = 2,
+    FreeRTOS_Error = 3,
+    ADC_Error = 4
+} ErrorType_t;
 
-#define ADC_WEIGHT_Pin 					GPIO_PIN_1
-#define ADC_WEIGHT_GPIO_Port 		GPIOA
-#define ADC_BAT_Pin 						GPIO_PIN_2
-#define ADC_BAT_GPIO_Port 			GPIOA
-#define LED_STAT_Pin 						GPIO_PIN_12
-#define LED_STAT_GPIO_Port 			GPIOB
-#define SIM_PWR_Pin 						GPIO_PIN_13
-#define SIM_PWR_GPIO_Port 			GPIOB
-#define SIM_RI_Pin 							GPIO_PIN_14
-#define SIM_RI_GPIO_Port 				GPIOB
-#define SIM_RI_EXTI_IRQn 				EXTI15_10_IRQn
-#define SIM_DTR_Pin 						GPIO_PIN_15
-#define SIM_DTR_GPIO_Port 			GPIOB
-#define USB_DETECT_Pin 					GPIO_PIN_8
-#define USB_DETECT_GPIO_Port 		GPIOA
-#define USB_DETECT_EXTI_IRQn 		EXTI9_5_IRQn
-#define ADC_PWR_Pin 						GPIO_PIN_0
-#define ADC_PWR_GPIO_Port 			GPIOA
+#define ADC_WEIGHT_Pin              GPIO_PIN_1
+#define ADC_WEIGHT_GPIO_Port        GPIOA
+#define ADC_BAT_Pin                 GPIO_PIN_2
+#define ADC_BAT_GPIO_Port           GPIOA
+#define LED_STAT_Pin                GPIO_PIN_12
+#define LED_STAT_GPIO_Port          GPIOB
+#define SIM_PWR_Pin                 GPIO_PIN_13
+#define SIM_PWR_GPIO_Port           GPIOB
+#define SIM_RI_Pin                  GPIO_PIN_14
+#define SIM_RI_GPIO_Port            GPIOB
+#define SIM_RI_EXTI_IRQn            EXTI15_10_IRQn
+#define SIM_DTR_Pin                 GPIO_PIN_15
+#define SIM_DTR_GPIO_Port           GPIOB
+#define USB_DETECT_Pin              GPIO_PIN_8
+#define USB_DETECT_GPIO_Port        GPIOA
+#define USB_DETECT_EXTI_IRQn        EXTI9_5_IRQn
+#define ADC_PWR_Pin                 GPIO_PIN_0
+#define ADC_PWR_GPIO_Port           GPIOA
 
-void CONFIG_Init									(void);
-void CONFIG_ClockConfig						(void);
-void CONFIG_GPIOClockEnable				(void);
-void CONFIG_GPIOClockDisable			(void);
+void config_init();
 
-void Error_Handler								(ErrorType_t ErrorType);
+void Error_Handler(ErrorType_t);
 
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *);
 
-void _Error_Handler(char * file, int line);
+void _Error_Handler(char *, int);
 
 #endif /* BASE_INC_CONFIG_H_ */
