@@ -13,6 +13,7 @@
 #define CTRL_Z (0x1A)		/* CTRL + Z */
 
 #define HTTP_URL "\"URL\",\"http://0.tcp.ngrok.io:17908\"" /* /api/v1/site/new */
+#define NTP_SERVER  "216.239.35.0"
 
 /* Private typedef -----------------------------------------------------------*/
 typedef ErrorType_t (SIM808_parseResp)(char *);
@@ -22,6 +23,15 @@ struct sim808_req {
     const char *resp;
     SIM808_checkResp *cb;
     SIM808_parseResp *parse_cb;
+};
+
+struct sim_time_t {
+    char year[2];
+    char month[2];
+    char day[2];
+    char hour[2];
+    char minute[2];
+    char second[2];
 };
 
 typedef enum {
@@ -57,6 +67,7 @@ enum {
     SIM808_SET_APN,
     SIM808_BRING_UP_GPRS,
     SIM808_GET_LOCAL_IP,
+    SIM808_TCP_ENABLE_SSL,
     SIM808_DEACTIVATE_GRPS_CONTEXT,
     SIM808_START_TCP_IP_CONN,
     SIM808_CLOSE_TCP_IP_CONN,
@@ -66,13 +77,18 @@ enum {
     SIM808_BEARER_OPEN_GPRS,
     SIM808_BEARER_CLOSE_GPRS,
     SIM808_HTTP_INIT,
+    SIM808_HTTP_ENABLE_SSL,
     SIM808_HTTP_SET_PARAM,
     SIM808_HTTP_GET,
     SIM808_HTTP_READ_SERVER_DATA,
     SIM808_HTTP_PREPARE_HTTP_POST,
     SIM808_HTTP_UPLOAD_POST_DATA,
     SIM808_HTTP_POST,
-    SIM808_HTTP_TERMINATE
+    SIM808_HTTP_TERMINATE,
+    SIM808_NTP_CONFIGURE_BEARER,
+    SIM808_NTP_SETUP_SERVICE,
+    SIM808_NTP_START_SERVICE,
+    SIM808_GET_TIME
 };
 
 /* Private variables ---------------------------------------------------------*/
@@ -112,13 +128,16 @@ static ErrorType_t SIM808_Get_GPRS_Status();
 static ErrorType_t SIM808_Set_APN();
 static ErrorType_t SIM808_BringUp_GPRS();
 static ErrorType_t SIM808_Get_Local_IP();
+static ErrorType_t SIM808_TCP_Enable_SSL();
 static ErrorType_t SIM808_Deactivate_GRPS_Context();
 static ErrorType_t SIM808_Start_TCP_Conn(char *);
 static ErrorType_t SIM808_Close_TCP_Conn();
+static ErrorType_t SIM808_Configure_Bearer();
 static ErrorType_t SIM808_Bearer_Configure(char *);
 static ErrorType_t SIM808_Bearer_Open_GPRS_Context();
 static ErrorType_t SIM808_Bearer_Close_GPRS_Context();
 static ErrorType_t SIM808_HTTP_Init();
+static ErrorType_t SIM808_HTTP_Enable_SSL();
 static ErrorType_t SIM808_HTTP_Set_Param(char *);
 static ErrorType_t SIM808_HTTP_Get();
 static ErrorType_t SIM808_HTTP_read_server_data();
@@ -126,6 +145,11 @@ static ErrorType_t SIM808_HTTP_Pepare_POST_data(size_t, uint32_t);
 static ErrorType_t SIM808_HTTP_Upload_POST_Data(char *);
 static ErrorType_t SIM808_HTTP_Post();
 static ErrorType_t SIM808_HTTP_Terminate();
+static ErrorType_t SIM808_NTP_configure();
+static ErrorType_t SIM808_NTP_setup_service(char *);
+static ErrorType_t SIM808_NTP_start_sync();
+static ErrorType_t SIM808_NTP_setup();
+static ErrorType_t SIM808_Get_Time(struct sim_time_t *);
 static ErrorType_t SIM808_HangUp();
 static ErrorType_t SIM808_SleepMode(uint32_t);
 static ErrorType_t SIM808_SendAT(const char *, uint8_t, uint16_t);
@@ -166,6 +190,7 @@ static const struct sim808_req sim808_req[] = {
         {"AT+CSTT=", "OK", SIM808_check_resp, NULL},    /* Set APN */
         {"AT+CIICR", "OK", SIM808_check_resp, NULL},    /* Bring up GPRS */
         {"AT+CIFSR", NULL, NULL, NULL},                 /* Get local IP address */
+        {"AT+CIPSSL=1", "OK", SIM808_check_resp, NULL}, /* Enable SSL for TCP */
         {"AT+CIPSHUT", "SHUT OK", SIM808_check_resp, NULL}, /* Deactivate GPRS Context */
         {"AT+CIPSTART=", "OK", SIM808_check_resp, NULL},  /* Start up TCP/IP connection */
         {"AT+CIPCLOSE", "CLOSE OK", SIM808_check_resp, NULL},  /* Close TCP/IP connection */
@@ -175,13 +200,18 @@ static const struct sim808_req sim808_req[] = {
         {"AT+SAPBR=1,1", "OK", SIM808_check_resp, NULL},    /* Opening GPRS Context */
         {"AT+SAPBR=0,1", "OK", SIM808_check_resp, NULL},    /* Closing GPRS Context */
         {"AT+HTTPINIT", "OK", SIM808_check_resp, NULL}, /* Init HTTP Service */
+        {"AT+HTTPSSL=1", "OK", SIM808_check_resp, NULL},      /* Enable SSL for HTTP */
         {"AT+HTTPPARA=", "OK", SIM808_check_resp, NULL}, /* Set HTTP Parameter */
         {"AT+HTTPACTION=0", "OK", SIM808_check_resp, NULL},          /* GET Data */
         {"AT+HTTPREAD", NULL, NULL, NULL},         /* Read the data from HTTP server */
         {"AT+HTTPDATA=", "DOWNLOAD", SIM808_check_resp, NULL},  /* Prepare to upload HTTP data */
         {NULL, "OK", SIM808_check_resp, NULL},          /* Upload HTTP Data */
         {"AT+HTTPACTION=1", "OK", SIM808_check_resp, NULL},          /* POST Data */
-        {"AT+HTTPTERM", "OK", SIM808_check_resp, NULL}      /* Terminate HTTP */
+        {"AT+HTTPTERM", "OK", SIM808_check_resp, NULL},      /* Terminate HTTP */
+        {"AT+CNTPCID=1", "OK", SIM808_check_resp, NULL},    /* Configure NTP bearer */
+        {"AT+CNTP=", "OK", SIM808_check_resp, NULL},        /* Setup NTP service */
+        {"AT+CNTP", "OK+CNTP: 1", SIM808_check_resp, NULL},         /* Start NTP service */
+        {"AT+CCLK?", NULL, NULL, NULL}                      /* Get current time */
 
 };
 
@@ -204,6 +234,8 @@ SIM808_Init(void)
         if ((status = SIM808_SetTextMode())) continue;
         if ((status = SIM808_PresentCallID())) continue;
         if ((status = SIM808_Set_APN())) continue;
+        if ((status = SIM808_Configure_Bearer())) continue;
+        if ((status = SIM808_NTP_setup())) continue;
         if (status == Ok) break;
     } while (attempts--);
     if (attempts < 0)
@@ -250,9 +282,13 @@ SIM808_handleSMS(void)
 void
 SIM808_handleCall(void)
 {
+    struct sim_time_t timestamp;
+    memset(&timestamp, 0, sizeof(struct sim_time_t));
     /* Get CLIP input while RING */
     if (SIM808_GetNumber())
     {
+        SIM808_Get_Time(&timestamp);
+        debug_printf("Current time: %s-%s-%s T%s:%s:%s\r\n", timestamp.day, timestamp.month, timestamp.year, timestamp.hour, timestamp.minute, timestamp.second);
 //        SIM808_SendSMS("Hello\r\nWorld\r\n!");
         /* Start Measurement task */
         _setSignal(ADCTask, SIGNAL_START_ADC);
@@ -499,6 +535,13 @@ SIM808_Get_Local_IP(void)
 }
 
 static ErrorType_t
+SIM808_TCP_Enable_SSL(void)
+{
+    DEBUG_INFO("Activating SSL for TCP...");
+    return SIM808_SendAT(NULL, SIM808_TCP_ENABLE_SSL, 100);
+}
+
+static ErrorType_t
 SIM808_Deactivate_GRPS_Context(void)
 {
     DEBUG_INFO("Deactivating GRPS context...");
@@ -561,7 +604,14 @@ static ErrorType_t
 SIM808_HTTP_Init(void)
 {
     DEBUG_INFO("Initializing HTTP Service...");
-    return SIM808_SendAT(NULL, SIM808_HTTP_INIT, 1000);
+    return SIM808_SendAT(NULL, SIM808_HTTP_INIT, 100);
+}
+
+static ErrorType_t
+SIM808_HTTP_Enable_SSL(void)
+{
+    DEBUG_INFO("Activating SSL for HTTP Service...");
+    return SIM808_SendAT(NULL, SIM808_HTTP_ENABLE_SSL, 100);
 }
 
 static ErrorType_t
@@ -612,6 +662,52 @@ SIM808_HTTP_Terminate(void)
 {
     DEBUG_INFO("Terminating HTTP Service...");
     return SIM808_SendAT(NULL, SIM808_HTTP_TERMINATE, 100);
+}
+
+static ErrorType_t
+SIM808_NTP_configure(void)
+{
+    DEBUG_INFO("Configuring NTP bearer...");
+    return SIM808_SendAT(NULL, SIM808_NTP_CONFIGURE_BEARER, 100);
+}
+
+static ErrorType_t
+SIM808_NTP_setup_service(char *params)
+{
+    DEBUG_INFO("Setuping NTP service...%s", params);
+    return SIM808_SendAT(params, SIM808_NTP_SETUP_SERVICE, 100);
+}
+
+static ErrorType_t
+SIM808_NTP_start_sync(void)
+{
+    DEBUG_INFO("Starting NTP...");
+    return SIM808_SendAT(NULL, SIM808_NTP_START_SERVICE, 100);
+}
+
+static ErrorType_t
+SIM808_NTP_setup(void)
+{
+    char ntp_params[20] = {0};
+    SIM808_Bearer_Open_GPRS_Context();
+    SIM808_NTP_configure();
+    snprintf(ntp_params, sizeof(ntp_params), "\"%s\",4", NTP_SERVER);
+    SIM808_NTP_setup_service(ntp_params);
+    SIM808_NTP_start_sync();
+    vTaskDelay(3000);
+    SIM808_Bearer_Close_GPRS_Context();
+    return Ok;
+}
+
+static ErrorType_t
+SIM808_Get_Time(struct sim_time_t *current_timestamp)
+{
+    char response[30] = {0};
+    DEBUG_INFO("Fetching timestamp...");
+    SIM808_SendAT(NULL, SIM808_GET_TIME, 100);
+    UART_GetData(response, 1500);
+    debug_printf("response: %s\r\n", response);
+    return Ok;
 }
 
 static ErrorType_t
@@ -915,16 +1011,24 @@ SIM808_SendSMS(char *message)
     return status;
 }
 
-static void
+static ErrorType_t
 SIM808_Configure_Bearer(void)
 {
     static bool initialized = false;
+    ErrorType_t ret = Ok;
     if (initialized == false)
     {
-        SIM808_Bearer_Configure("\"Contype\",\"GPRS\"");
-        SIM808_Bearer_Configure("\"APN\",\"tomato\"");
-        initialized = true;
+        ret =SIM808_Bearer_Configure("\"Contype\",\"GPRS\"");
+        if (ret == Ok)
+        {
+            ret = SIM808_Bearer_Configure("\"APN\",\"tomato\"");
+        }
+        if (ret == Ok)
+        {
+            initialized = true;
+        }
     }
+    return ret;
 }
 
 static void
@@ -941,6 +1045,7 @@ SIM808_send_GET_request(void)
     SIM808_HTTP_Set_Param("\"CID\",1");
     SIM808_HTTP_Set_Param(HTTP_URL);
     SIM808_HTTP_Set_Param("\"CONTENT\",\"application/json\"");
+//    SIM808_HTTP_Enable_SSL();
     vTaskDelay(30);
     SIM808_HTTP_Get();
     vTaskDelay(3000);
@@ -965,6 +1070,7 @@ SIM808_send_POST_request(void)
     SIM808_HTTP_Set_Param("\"CID\",1");
     SIM808_HTTP_Set_Param(HTTP_URL);
     SIM808_HTTP_Set_Param("\"CONTENT\",\"application/json\"");
+//    SIM808_HTTP_Enable_SSL();
     vTaskDelay(30);
     SIM808_HTTP_Pepare_POST_data(strlen(msg), 50000);
     SIM808_HTTP_Post();
@@ -981,6 +1087,7 @@ SIM808_send_TCP_request(void)
     char connection_status[20] = {0};
     debug_printf("Preparing to send TCP request\r\n");
     SIM808_Deactivate_GRPS_Context();
+//    SIM808_TCP_Enable_SSL();
     SIM808_Start_TCP_Conn("\"TCP\",\"0.tcp.ngrok.io\",\"13180\"");
     UART_GetData(connection_status, 4000);
     debug_printf("connection status = %s\r\n", connection_status);
