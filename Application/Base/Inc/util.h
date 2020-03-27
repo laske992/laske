@@ -29,7 +29,7 @@
 
 #define MAXCOUNT(s) (sizeof(s)/(sizeof(s[0])))
 
-#define MAX_NUM_SIZE 30
+#define MAX_NUM_SIZE 16
 #define NUM_TYPE_SIZE 3
 
 typedef enum {
@@ -43,12 +43,6 @@ typedef enum {
     International_type = 145,
     Net_specific_type = 177
 } num_type_t;
-
-struct number_t {
-    num_type_t type;
-    uint8_t crc;
-    char num[MAX_NUM_SIZE];
-} __attribute__((__packed__));
 
 void debug_init();
 void debug_printf(const char *fmt, ...);

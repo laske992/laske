@@ -46,6 +46,9 @@ void SIM808_GPIODeInit();
 bool SIM808_RI_active();
 ErrorType_t SIM808_Init(void);
 ErrorType_t SIM808_SendSMS(char *);
+void SIM808_send_GET_request(char *, char *);
+void SIM808_send_POST_request(char *, char *);
+void SIM808_send_TCP_request(char *, char *, char *);
 
 
 #endif /* DRIVERS_INC_SIM808_H_ */

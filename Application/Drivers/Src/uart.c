@@ -155,7 +155,7 @@ UART_Send(uint8_t *data, uint16_t timeout, uint8_t req_id, SIM808_checkResp *cal
     if (callback)
     {
         /* Parse reply */
-        UART_GetData(sim808reply, 3000);
+        UART_GetData(sim808reply, 6000);
         debug_printf("Received: %s\r\n", sim808reply);
         status = callback(sim808reply, req_id);
     }

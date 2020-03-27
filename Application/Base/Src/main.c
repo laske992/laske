@@ -54,6 +54,7 @@
 #include "adc.h"
 #include "sim808.h"
 #include "util.h"
+#include "http.h"
 
 osThreadId SIM808TaskHandle;
 osThreadId ADCTaskHandle;
@@ -117,6 +118,7 @@ static void _HandleSIM808Task(void const * argument)
         {
             DEBUG_INFO("IRQ Call kicked");
             SIM808_handleCall();
+//            web_server_subscribe();
         }
         else if (event.value.signals & SIGNAL_SIM_RI_IRQ_SMS)
         {

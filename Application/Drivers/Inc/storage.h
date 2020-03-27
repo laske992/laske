@@ -8,14 +8,15 @@
 #ifndef DRIVERS_INC_STORAGE_H_
 #define DRIVERS_INC_STORAGE_H_
 
-#include "util.h"
+#include <stdbool.h>
 
-#define DATA_EEPROM_START_ADDR      0x08080000
-#define DATA_EEPROM_SIZE_BYTES      8192
-#define STORAGE_NUMBER_ADDR         DATA_EEPROM_START_ADDR
-#define STORAGE_VALUES_ADDR			DATA_EEPROM_START_ADDR + 50
+typedef enum {
+    USER1_PHONE_NUMBER = 0,
+    USER2_PHONE_NUMBER,
+    DEVICE_PID
+} storage_type_t;
 
-void storage_get_number(struct number_t *);
-bool storage_save_number(struct number_t *);
+bool storage_write_data(uint32_t *, size_t, storage_type_t);
+void storage_read_data(void *, size_t, storage_type_t);
 
 #endif /* DRIVERS_INC_STORAGE_H_ */

@@ -25,7 +25,12 @@ struct sim808_req {
     SIM808_parseResp *parse_cb;
 };
 
-struct sim_time_t {
+struct user_phone_number_t {
+    num_type_t type;
+    char num[MAX_NUM_SIZE];
+} __attribute__((__packed__));
+
+struct local_time_t {
     char year[2];
     char month[2];
     char day[2];
@@ -97,7 +102,7 @@ xQueueHandle inputQueue;
 xTaskHandle  recieveTaskHandle;
 xSemaphoreHandle CDCMutex;
 bool numberMemorized;
-struct number_t number;
+struct user_phone_number_t number;
 
 uint32_t down_ticks;
 uint32_t up_ticks;
@@ -109,8 +114,9 @@ static SMS_action_t SIM808_get_sms_action();
 static void SIM808_parseSMS(char *, char *, size_t);
 static void SIM808_readSMS(char *, char *, size_t);
 static bool SIM808_GetNumber();
-static ErrorType_t SIM808_parseNumber(char *, struct number_t *);
+static ErrorType_t SIM808_parseNumber(char *, struct user_phone_number_t *);
 static void SIM808_memorizeNumber();
+static bool SIM808_save_number(struct user_phone_number_t *, storage_type_t);
 static bool SIM808_readEEPROMNumber();
 static void SIM808_forgetNumber();
 static bool isNumberMemorized();
@@ -149,17 +155,13 @@ static ErrorType_t SIM808_NTP_configure();
 static ErrorType_t SIM808_NTP_setup_service(char *);
 static ErrorType_t SIM808_NTP_start_sync();
 static ErrorType_t SIM808_NTP_setup();
-static ErrorType_t SIM808_Get_Time(struct sim_time_t *);
+static ErrorType_t SIM808_Get_Time(struct local_time_t *);
 static ErrorType_t SIM808_HangUp();
 static ErrorType_t SIM808_SleepMode(uint32_t);
 static ErrorType_t SIM808_SendAT(const char *, uint8_t, uint16_t);
 static ErrorType_t SIM808_check_resp(char *, uint8_t);
 static ErrorType_t SIM808_CREG_resp(char *);
 static ErrorType_t SIM808_CMGF_resp(char *);
-static void SIM808_send_GET_request();
-static void SIM808_send_POST_request();
-static void SIM808_send_TCP_request();
-static void SIM808_process_TCP_response(char *);
 static void SIM808_Timer4Start();
 static void SIM808_Timer4Stop();
 static void SIM808_EnableIRQs();
@@ -234,8 +236,8 @@ SIM808_Init(void)
         if ((status = SIM808_SetTextMode())) continue;
         if ((status = SIM808_PresentCallID())) continue;
         if ((status = SIM808_Set_APN())) continue;
-        if ((status = SIM808_Configure_Bearer())) continue;
-        if ((status = SIM808_NTP_setup())) continue;
+//        if ((status = SIM808_Configure_Bearer())) continue;
+//        if ((status = SIM808_NTP_setup())) continue;
         if (status == Ok) break;
     } while (attempts--);
     if (attempts < 0)
@@ -265,15 +267,16 @@ SIM808_handleSMS(void)
     action = SIM808_get_sms_action();
     switch (action) {
     case HTTP_GET:
-        SIM808_send_GET_request();
+//        SIM808_send_GET_request();
         break;
     case HTTP_POST:
-        SIM808_send_POST_request();
+//        SIM808_send_POST_request();
         break;
     case TCP_REQUEST:
-        SIM808_send_TCP_request();
+//        SIM808_send_TCP_request();
         break;
     default:
+        SIM808_readEEPROMNumber();
         DEBUG_ERROR("Unknown SMS action!");
         break;
     }
@@ -282,8 +285,8 @@ SIM808_handleSMS(void)
 void
 SIM808_handleCall(void)
 {
-    struct sim_time_t timestamp;
-    memset(&timestamp, 0, sizeof(struct sim_time_t));
+    struct local_time_t timestamp;
+    memset(&timestamp, 0, sizeof(struct local_time_t));
     /* Get CLIP input while RING */
     if (SIM808_GetNumber())
     {
@@ -700,7 +703,7 @@ SIM808_NTP_setup(void)
 }
 
 static ErrorType_t
-SIM808_Get_Time(struct sim_time_t *current_timestamp)
+SIM808_Get_Time(struct local_time_t *current_timestamp)
 {
     char response[30] = {0};
     DEBUG_INFO("Fetching timestamp...");
@@ -874,7 +877,7 @@ SIM808_readSMS(char *sms, char *sms_index, size_t sms_max_len)
 
 /* Ex. +CLIP: "+989108793902",145,"",0,"",0 */
 static ErrorType_t
-SIM808_parseNumber(char *resp, struct number_t *num)
+SIM808_parseNumber(char *resp, struct user_phone_number_t *num)
 {
     char *pos, *start, *end;
     char type[NUM_TYPE_SIZE + 1] = {0};
@@ -893,8 +896,6 @@ SIM808_parseNumber(char *resp, struct number_t *num)
     }
     /* num is inside "" */
     strncpy(num->num, start, (size_t)len);
-    /* Generate number CRC */
-    num->crc = gencrc((uint8_t *)num->num, strlen(num->num));
     /* Get number type */
     end++;
     strncpy(type, end, NUM_TYPE_SIZE);
@@ -907,7 +908,7 @@ SIM808_GetNumber(void)
 {
     ErrorType_t status = SIM808_Error;
     char CLIP_resp[MAX_COMMAND_INPUT_LENGTH] = {0};
-    struct number_t CallNumber = {.type = 0, .crc = 0, .num = {0}};
+    struct user_phone_number_t CallNumber = {.type = 0, .num = {0}};
     UART_GetData(CLIP_resp, 1000);
     debug_printf("%s\r\n", CLIP_resp);
     status = SIM808_parseNumber(CLIP_resp, &CallNumber);
@@ -937,7 +938,7 @@ SIM808_GetNumber(void)
 }
 
 static void
-SIM808_memorizeNumber(struct number_t *num)
+SIM808_memorizeNumber(struct user_phone_number_t *num)
 {
     /* Only if number is not memorized */
     if (isNumberMemorized())
@@ -945,33 +946,38 @@ SIM808_memorizeNumber(struct number_t *num)
         return;
     }
     DEBUG_INFO("Memorizing number: %s", num->num);
-    if (!storage_save_number(num))
+    if (!SIM808_save_number(num, USER1_PHONE_NUMBER))
     {
-        DEBUG_ERROR("Number not memorized!");
         /* Write failed */
+        DEBUG_ERROR("Number not memorized!");
         return;
     }
-    memcpy(&number, num, sizeof(struct number_t));
+    DEBUG_INFO("Number memorized!");
+    memcpy(&number, num, sizeof(struct user_phone_number_t));
     numberMemorized = true;
+}
+
+static bool
+SIM808_save_number(struct user_phone_number_t *num, storage_type_t type)
+{
+    size_t i, j;
+    uint32_t data[sizeof(struct user_phone_number_t)] = {0};
+    data[0] = num->type;
+    for (i = 1, j = 0; i < sizeof(struct user_phone_number_t) && num->num[j] != '\0'; i++, j++)
+    {
+        data[i] = num->num[j];
+        debug_printf("%s: data[%d] = %x\r\n", __func__, i, data[i]);
+    }
+    return storage_write_data(data, sizeof(struct user_phone_number_t), type);
 }
 
 static bool
 SIM808_readEEPROMNumber(void)
 {
-    uint8_t read_crc;
-    uint8_t calc_crc;
-    struct number_t num = {.type = 0, .crc = 0, .num = {0}};
+    struct user_phone_number_t num = {.type = 0, .num = {0}};
     /* Get data from EEPROM */
-    storage_get_number(&num);
+    storage_read_data((void *)&num, sizeof(struct user_phone_number_t), USER1_PHONE_NUMBER);
 
-    /* Validate crc */
-    read_crc = num.crc;
-    calc_crc = gencrc((uint8_t *)num.num, strlen(num.num));
-    if (read_crc != calc_crc)
-    {
-        DEBUG_ERROR("CRC mismatch!");
-        return false;
-    }
     /* Validate number by number type */
     switch(num.type) {
     case Unknown_type:
@@ -984,14 +990,14 @@ SIM808_readEEPROMNumber(void)
         return false;
     }
     DEBUG_INFO("Read stored number: %s", num.num);
-    memcpy(&number, &num, sizeof(struct number_t));
+    memcpy(&number, &num, sizeof(struct user_phone_number_t));
     return true;
 }
 
 static void
 SIM808_forgetNumber(void)
 {
-    memset(&number, 0, sizeof(struct number_t));
+    memset(&number, 0, sizeof(struct user_phone_number_t));
 }
 
 ErrorType_t
@@ -1009,6 +1015,76 @@ SIM808_SendSMS(char *message)
         return status;
     }
     return status;
+}
+
+void
+SIM808_send_GET_request(char *url, char *response)
+{
+    SIM808_Configure_Bearer();
+    /* Bearer Configure */
+    SIM808_Bearer_Open_GPRS_Context();
+    /* HTTP GET */
+    SIM808_HTTP_Init();
+    vTaskDelay(30);
+    vTaskDelay(30);
+    SIM808_HTTP_Set_Param("\"CID\",1");
+    SIM808_HTTP_Set_Param(url);
+    SIM808_HTTP_Set_Param("\"CONTENT\",\"application/json\"");
+//    SIM808_HTTP_Enable_SSL();
+    vTaskDelay(30);
+    SIM808_HTTP_Get();
+    vTaskDelay(3000);
+    SIM808_HTTP_read_server_data();
+    UART_GetData(response, 2000);
+    SIM808_HTTP_Terminate();
+    SIM808_Bearer_Close_GPRS_Context();
+    debug_printf("received info: %s\r\n", response);
+}
+
+void
+SIM808_send_POST_request(char *msg, char *url)
+{
+    SIM808_Configure_Bearer();
+    /* Bearer Configure */
+    SIM808_Bearer_Open_GPRS_Context();
+    /* HTTP GET */
+    SIM808_HTTP_Init();
+    vTaskDelay(50);
+    SIM808_HTTP_Set_Param("\"CID\",1");
+    SIM808_HTTP_Set_Param(url);
+    SIM808_HTTP_Set_Param("\"CONTENT\",\"application/json\"");
+//    SIM808_HTTP_Enable_SSL();
+    vTaskDelay(30);
+    SIM808_HTTP_Pepare_POST_data(strlen(msg), 50000);
+    SIM808_HTTP_Post();
+    vTaskDelay(3000);
+    SIM808_HTTP_Terminate();
+    SIM808_Bearer_Close_GPRS_Context();
+    debug_printf("sent post req: %s\r\n", msg);
+}
+
+void
+SIM808_send_TCP_request(char *msg, char *tcp_params, char *response)
+{
+    char connection_status[20] = {0};
+    SIM808_Deactivate_GRPS_Context();
+//    SIM808_TCP_Enable_SSL();
+    vTaskDelay(50);
+    SIM808_Start_TCP_Conn(tcp_params);
+    UART_GetData(connection_status, 4000);
+    debug_printf("connection status = %s\r\n", connection_status);
+    if (strstr(connection_status, "CONNECT OK") == NULL)
+    {
+        DEBUG_ERROR("TCP/IP connection not established!");
+        goto out;
+    }
+    vTaskDelay(50);
+    SIM808_SendTCP_Packet(msg);
+    UART_GetData(response, 4000);
+    debug_printf("###### RECEIVDED DATA: %s\r\n", response);
+    out:
+    SIM808_Close_TCP_Conn();
+    SIM808_Deactivate_GRPS_Context();
 }
 
 static ErrorType_t
@@ -1029,89 +1105,6 @@ SIM808_Configure_Bearer(void)
         }
     }
     return ret;
-}
-
-static void
-SIM808_send_GET_request(void)
-{
-    char msg[400] = {0};
-    SIM808_Configure_Bearer();
-    /* Bearer Configure */
-    SIM808_Bearer_Open_GPRS_Context();
-    /* HTTP GET */
-    SIM808_HTTP_Init();
-    vTaskDelay(30);
-    vTaskDelay(30);
-    SIM808_HTTP_Set_Param("\"CID\",1");
-    SIM808_HTTP_Set_Param(HTTP_URL);
-    SIM808_HTTP_Set_Param("\"CONTENT\",\"application/json\"");
-//    SIM808_HTTP_Enable_SSL();
-    vTaskDelay(30);
-    SIM808_HTTP_Get();
-    vTaskDelay(3000);
-    SIM808_HTTP_read_server_data();
-    UART_GetData(msg, 2000);
-    SIM808_HTTP_Terminate();
-    SIM808_Bearer_Close_GPRS_Context();
-    debug_printf("received info: %s\r\n", msg);
-}
-
-static void
-SIM808_send_POST_request(void)
-{
-    char msg[100] = {0};
-    strcpy(msg, "{\"name\": \"beeSmart\", \"serial_number\": \"1111-2222-3333-4444\"}");
-    SIM808_Configure_Bearer();
-    /* Bearer Configure */
-    SIM808_Bearer_Open_GPRS_Context();
-    /* HTTP GET */
-    SIM808_HTTP_Init();
-    vTaskDelay(50);
-    SIM808_HTTP_Set_Param("\"CID\",1");
-    SIM808_HTTP_Set_Param(HTTP_URL);
-    SIM808_HTTP_Set_Param("\"CONTENT\",\"application/json\"");
-//    SIM808_HTTP_Enable_SSL();
-    vTaskDelay(30);
-    SIM808_HTTP_Pepare_POST_data(strlen(msg), 50000);
-    SIM808_HTTP_Post();
-    vTaskDelay(3000);
-    SIM808_HTTP_Terminate();
-    SIM808_Bearer_Close_GPRS_Context();
-    debug_printf("sent post req: %s\r\n", msg);
-}
-
-static void
-SIM808_send_TCP_request(void)
-{
-    char received_data[400]= {0};
-    char connection_status[20] = {0};
-    debug_printf("Preparing to send TCP request\r\n");
-    SIM808_Deactivate_GRPS_Context();
-//    SIM808_TCP_Enable_SSL();
-    SIM808_Start_TCP_Conn("\"TCP\",\"0.tcp.ngrok.io\",\"13180\"");
-    UART_GetData(connection_status, 4000);
-    debug_printf("connection status = %s\r\n", connection_status);
-    if (strstr(connection_status, "CONNECT OK") == NULL)
-    {
-        DEBUG_ERROR("TCP/IP connection not established!");
-        goto out;
-    }
-    /* api/v1/site/new */
-    SIM808_SendTCP_Packet("POST /home HTTP/1.1\r\nHOST: 0.tcp.ngrok.io\r\nAccept: application/json\r\nContent-Type: application/json\r\nContent-Length: 23\r\n\r\n{\"RPM\":\"55\",\"ECT\":\"55\"}\r\n\n");
-    UART_GetData(received_data, 4000);
-    debug_printf("###### RECEIVDED DATA: %s\r\n", received_data);
-    SIM808_process_TCP_response(received_data);
-    out:
-    SIM808_Close_TCP_Conn();
-    SIM808_Deactivate_GRPS_Context();
-}
-
-static void
-SIM808_process_TCP_response(char *msg)
-{
-    struct json_values_t json_values = {.key = {0}, .value = {0}};
-    json_process(msg, &json_values);
-    debug_printf("key = %s\r\nvalue = %s\r\n", json_values.key, json_values.value);
 }
 
 static bool
