@@ -29,6 +29,11 @@ struct local_time_t {
     char second[3];
 };
 
+struct gsm_location_t {
+    float longitude;
+    float latitude;
+};
+
 typedef enum {
     NONE = 0,
     HTTP_POST,
@@ -60,6 +65,7 @@ static bool isNumberMemorized();
 static ErrorType_t SIM808_Flush_out();
 static ErrorType_t SIM808_Get_Local_IP();
 static ErrorType_t SIM808_select_connection_mode(uint8_t);
+static ErrorType_t SIM808_enable_gprs();
 static ErrorType_t SIM808_Configure_Bearer();
 static ErrorType_t SIM808_NTP_setup();
 static ErrorType_t SIM808_Set_APN();
@@ -86,6 +92,7 @@ SIM808_Init(void)
         if ((status = at_set_sms_center())) continue;
         if ((status = at_set_sms_text_mode())) continue;
         if ((status = at_present_call_id())) continue;
+        if ((status = SIM808_enable_gprs())) continue;
         if ((status = SIM808_Set_APN())) continue;
 //        if ((status = SIM808_select_connection_mode(0))) continue;
         if ((status = SIM808_Configure_Bearer())) continue;
@@ -138,11 +145,16 @@ void
 SIM808_handleCall(void)
 {
     struct local_time_t timestamp;
+    struct gsm_location_t location;
     memset(&timestamp, 0, sizeof(struct local_time_t));
+    memset(&location, 0, sizeof(struct gsm_location_t));
     /* Get CLIP input while RING */
     if (SIM808_GetNumber())
     {
         at_get_time(&timestamp);
+        at_bearer_open_gprs_context();
+        at_get_gsm_location(&location);
+        at_bearer_close_gprs_context();
         debug_printf("Current time: %s-%s-%s T%s:%s:%s\r\n", timestamp.day, timestamp.month, timestamp.year, timestamp.hour, timestamp.minute, timestamp.second);
 //        SIM808_SendSMS("Hello\r\nWorld\r\n!");
         /* Start Measurement task */
@@ -295,8 +307,21 @@ SIM808_SendTCP_Packet(char *message)
     return status;
 }
 
-
-
+static ErrorType_t
+SIM808_enable_gprs(void)
+{
+    ErrorType_t status;
+    status = at_get_gprs_status();
+    switch (status)
+    {
+    case GPRS_down:
+        status = at_bring_up_gprs();
+        break;
+    default:
+        break;
+    }
+    return status;
+}
 
 static ErrorType_t
 SIM808_NTP_setup(void)
@@ -307,7 +332,6 @@ SIM808_NTP_setup(void)
     snprintf(ntp_params, sizeof(ntp_params), "\"%s\",4", NTP_SERVER);
     at_ntp_setup_service(ntp_params);
     at_ntp_start_sync();
-    vTaskDelay(3000);
     at_bearer_close_gprs_context();
     return Ok;
 }
@@ -812,6 +836,33 @@ SIM808_CMGF_resp(char *resp, void *arg)
 }
 
 /**
+ * @brief: Check GPRS status
+ * @param: response from SIM808
+ * @param unused
+ * @return: Ok if GPRS enabled, GPRS_down if disabled
+ */
+ErrorType_t
+SIM808_GPRS_status(char *resp, void *unused)
+{
+    ErrorType_t status = Ok;
+    uint8_t s;
+    s = TO_DIGIT(*resp);
+    switch (s) {
+    case 0:
+        status = GPRS_down;
+        break;
+    case 1:
+        DEBUG_INFO("GPRS enabled!");
+        status = Ok;
+        break;
+    default:
+        status = SIM808_Error;
+        break;
+    }
+    return status;
+}
+
+/**
  * @brief: Callback for checking NTP status after NTP started.
  * @param resp: response from SIM808
  * @param unused
@@ -838,7 +889,7 @@ SIM808_NTP_status(char *resp, void *unused)
         return SIM808_Error;
     }
     p += strlen("+CNTP: ");
-    s = TO_DIGIT(*p);
+    s = atoi(p);
     switch (s) {
     case NTP_SUCCESS:
         DEBUG_INFO("NTP successfully started");
@@ -925,4 +976,58 @@ SIM808_ip_addr(char *resp, void *arg)
         memmove(ip_addr, resp, 15);
     }
     return Ok;
+}
+
+/**
+ * @brief: Callback for parsing SIM808 GSM location.
+ * location will be stored to struct gsm_location_t.
+ * Example: +CIPGSMLOC: 0,6.141064,46.219772,2016/08/24,00:55:40
+ * @param resp: response from SIM808
+ * @param arg: pointer to struct gsm_location_t
+ * @return: Ok if successful
+ */
+ErrorType_t
+SIM808_location(char *resp, void *arg)
+{
+    gsm_loc_status_t state;
+    struct gsm_location_t *gl = arg;
+    char *p = NULL;
+    ErrorType_t status = Ok;
+    state = atoi(resp);
+    if (state == GSM_LOC_SUCCESS)
+    {
+        p = strchr(resp, ',');
+        if (p == NULL)
+        {
+            DEBUG_ERROR("Can not obtain location!");
+            status = SIM808_Error;
+        }
+        else
+        {
+            /* Read the longitude */
+            gl->longitude = (float)atof(++p);
+            p = strchr(p, ',');
+            if (p == NULL)
+            {
+                DEBUG_ERROR("Can not obtain location!");
+                status = SIM808_Error;
+            }
+            else
+            {
+                /* Read the latitude */
+                gl->latitude = (float)atof(++p);
+            }
+        }
+    }
+    else
+    {
+        DEBUG_ERROR("Can not obtain location! Network problem!");
+        status = SIM808_Error;
+    }
+    if (status != Ok)
+    {
+        /* Forget all changes */
+        memset(gl, 0, sizeof(struct gsm_location_t));
+    }
+    return status;
 }

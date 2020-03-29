@@ -22,7 +22,7 @@
         *(p) = (byte); (p)++
 
 #define TO_DIGIT(p) \
-        (((p) > '0' && (p) < '9') ? ((p) - 48) : (p))
+        (((p) >= '0' && (p) <= '9') ? ((p) - 48) : (p))
 
 #define STR_COMPARE(s1, s2) \
         strncmp((char *)(s1), (char *)(s2), strlen((char *)(s2)))
@@ -37,7 +37,8 @@ typedef enum {
     UART_Error = 1,
     SIM808_Error = 2,
     FreeRTOS_Error = 3,
-    ADC_Error = 4
+    ADC_Error = 4,
+    GPRS_down
 } ErrorType_t;
 
 typedef enum {

@@ -41,7 +41,7 @@ static const struct at_req at_req[] = {
     {"AT+CMGR=",        NULL,       2500,   true,   SIM808_parseSMS},   /* Read SMS message */
     {"AT+CIPMUX=",      NULL,       1000,   false,  NULL},              /* Set TCP/IP Connection Mode */
     {"AT+CIPMODE",      NULL,       1000,   false,  NULL},              /* Select TCP/IP Application Mode */
-    {"AT+CGATT?",       "+CGATT:",  1000,   true,   NULL},              /* Get GPRS Status */
+    {"AT+CGATT?",       "+CGATT: ", 1000,   true,   SIM808_GPRS_status},/* Get GPRS Status */
     {"AT+CSTT=",        "OK",       1000,   true,   NULL},              /* Set APN */
     {"AT+CIICR",        "OK",       2000,   true,   NULL},              /* Bring up GPRS */
     {"AT+CIFSR",        NULL,       3000,   true,   SIM808_ip_addr},    /* Get local IP address */
@@ -66,7 +66,8 @@ static const struct at_req at_req[] = {
     {"AT+CNTPCID=1",    "OK",       1000,   true,   NULL},              /* Configure NTP bearer */
     {"AT+CNTP=",        "OK",       1000,   true,   NULL},              /* Setup NTP service */
     {"AT+CNTP",         "OK",       3000,   true,   SIM808_NTP_status}, /* Start NTP service */
-    {"AT+CCLK?",        NULL,       1000,   true,   SIM808_parseTime}   /* Get current time */
+    {"AT+CCLK?",        NULL,       1000,   true,   SIM808_parseTime},  /* Get current time */
+    {"AT+CIPGSMLOC=1,1",    "+CIPGSMLOC: ", 2000,   true,   SIM808_location}    /* Get GSM location */
 };
 
 /* Static functions */
@@ -470,5 +471,12 @@ ErrorType_t
 at_get_local_ip_addr(char *ip_addr)
 {
     DEBUG_INFO("Getting Local IP address...");
-    at_send(NULL, SIM808_GET_LOCAL_IP, 100, ip_addr);
+    return at_send(NULL, SIM808_GET_LOCAL_IP, 100, ip_addr);
+}
+
+ErrorType_t
+at_get_gsm_location(void *location)
+{
+    DEBUG_INFO("Requesting GSM location...");
+    return at_send(NULL, SIM808_GET_GSM_LOCATION, 100, location);
 }

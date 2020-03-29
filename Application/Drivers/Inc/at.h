@@ -57,7 +57,8 @@ enum {
     SIM808_NTP_CONFIGURE_BEARER,
     SIM808_NTP_SETUP_SERVICE,
     SIM808_NTP_START_SERVICE,
-    SIM808_GET_TIME
+    SIM808_GET_TIME,
+    SIM808_GET_GSM_LOCATION
 };
 
 ErrorType_t at_disable_echo();
@@ -102,6 +103,7 @@ ErrorType_t at_ntp_setup_service(char *);
 ErrorType_t at_ntp_start_sync();
 ErrorType_t at_get_time(void *);
 ErrorType_t at_get_local_ip_addr(char *ip_addr);
+ErrorType_t at_get_gsm_location(void *);
 
 /******** AT response parsing callbacks ***********/
 typedef ErrorType_t (SIM808_parseResp)(char *, void *);
@@ -109,8 +111,10 @@ typedef ErrorType_t (SIM808_parseResp)(char *, void *);
 extern ErrorType_t SIM808_parseSMS(char *, void *);
 extern ErrorType_t SIM808_CREG_resp(char *, void *);
 extern ErrorType_t SIM808_CMGF_resp(char *, void *);
+extern ErrorType_t SIM808_GPRS_status(char *, void *);
 extern ErrorType_t SIM808_NTP_status(char *, void *);
 extern ErrorType_t SIM808_parseTime(char *, void *);
 extern ErrorType_t SIM808_ip_addr(char *, void *);
+extern ErrorType_t SIM808_location(char *, void *);
 
 #endif /* DRIVERS_INC_AT_H_ */

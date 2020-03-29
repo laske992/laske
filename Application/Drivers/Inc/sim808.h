@@ -49,6 +49,17 @@ typedef enum {
     NTP_OPERATION_NOT_ALLOWED = 66
 } NTP_status_t;
 
+typedef enum {
+    GSM_LOC_SUCCESS = 0,
+    GSM_LOC_NOT_FOUND = 404,
+    GSM_LOC_REQUEST_TIMEOUT = 408,
+    GSM_LOC_NETWORK_ERROR = 601,
+    GSM_LOC_NO_MEMORY = 602,
+    GSM_LOC_DNS_ERROR = 603,
+    GSM_LOC_STACK_BUSY = 604,
+    GSM_LOC_OTHER_ERROR = 65535
+} gsm_loc_status_t;
+
 void SIM808_handleSMS();
 void SIM808_handleCall();
 void SIM808_GPIOInit();
