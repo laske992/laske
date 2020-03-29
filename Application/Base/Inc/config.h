@@ -15,14 +15,7 @@
 #include "task.h"
 #include "timers.h"
 #include "semphr.h"
-
-typedef enum {
-    Ok = 0,
-    UART_Error = 1,
-    SIM808_Error = 2,
-    FreeRTOS_Error = 3,
-    ADC_Error = 4
-} ErrorType_t;
+#include "util.h"
 
 #define ADC_WEIGHT_Pin              GPIO_PIN_1
 #define ADC_WEIGHT_GPIO_Port        GPIOA

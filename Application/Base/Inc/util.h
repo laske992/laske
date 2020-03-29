@@ -33,6 +33,14 @@
 #define NUM_TYPE_SIZE 3
 
 typedef enum {
+    Ok = 0,
+    UART_Error = 1,
+    SIM808_Error = 2,
+    FreeRTOS_Error = 3,
+    ADC_Error = 4
+} ErrorType_t;
+
+typedef enum {
     SIM808Task = 1,
     ADCTask
 } _TaskId;

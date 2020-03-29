@@ -136,10 +136,10 @@ void UART_Enable (uint8_t xRxEnable, uint8_t xTxEnable)
  * @return: Status of UART send and response parsing
  */
 ErrorType_t
-UART_Send(uint8_t *data, uint16_t tx_timeout, struct rx_at_struct *rx_s)
+UART_Send(uint8_t *data, uint16_t tx_timeout, struct at_response *at_r)
 {
     ErrorType_t status = Ok;
-    char sim808reply[SIM808_BUFFER_SIZE] = {0};
+
     /* Take semaphore first */
     if (UART_busy(tx_timeout) != Ok)
     {
@@ -164,12 +164,11 @@ UART_Send(uint8_t *data, uint16_t tx_timeout, struct rx_at_struct *rx_s)
     }
     if (status == Ok)
     {
-        if (rx_s->rx_parse)
+        if (at_r->wait)
         {
-            /* Parse reply */
-            UART_Get_rxData(sim808reply, rx_s->rx_timeout);
-            debug_printf("Response received: %s\r\n", sim808reply);
-            status = rx_s->rx_parse(sim808reply, rx_s->at_req_id, rx_s->arg);
+            /* Get AT response */
+            UART_Get_rxData(at_r->response, at_r->rx_timeout);
+            debug_printf("Response received: %s\r\n", at_r->response);
         }
     }
     UART_release();
