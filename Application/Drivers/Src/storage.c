@@ -112,7 +112,6 @@ storage_read(void *dest, uint32_t offset, size_t count)
 
     /* Get crc */
     memmove(&read_crc, (uint32_t *)src, sizeof(read_crc));
-    debug_printf("%s: crc = %x\r\n", __func__, read_crc);
     /* copy data from EEPROM to RAM */
     memmove(raw_data, (uint32_t *)(src + sizeof(uint32_t)), count * sizeof(uint32_t));
 
@@ -122,20 +121,18 @@ storage_read(void *dest, uint32_t offset, size_t count)
     /* Convert to uint8_t */
     for (size_t i = 0; i < count && raw_data[i] != 0U; i++)
     {
-        debug_printf("%s: data[%d] = %x\r\n", __func__, i, raw_data[i]);
         data[i] = (uint8_t) raw_data[i];
     }
 
     /* Validate crc */
     calc_crc = gencrc((uint8_t *) raw_data, count);
-    debug_printf("%s: calc_crc = %x\r\n", __func__, calc_crc);
     if (read_crc != calc_crc)
     {
         DEBUG_ERROR("CRC mismatch!");
         return;
     }
     /* Copy to destination */
-    memmove(dest, data, len);
+    memmove(dest, data, count);
 }
 
 /**

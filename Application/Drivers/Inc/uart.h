@@ -20,13 +20,20 @@
 #define RX_EN									1
 #define RX_DIS									0
 
-typedef ErrorType_t (SIM808_checkResp)(char *, uint8_t);
+typedef ErrorType_t (SIM808_checkResp)(char *, uint8_t, void *);
+
+struct rx_at_struct {
+    uint8_t at_req_id;
+    uint16_t rx_timeout;
+    SIM808_checkResp *rx_parse;
+    void *arg;
+};
 
 void UART_Init(void);
 void UART_DeInit(void);
 void UART_Enable (uint8_t, uint8_t);
-ErrorType_t UART_Send(uint8_t *, uint16_t, uint8_t, SIM808_checkResp *);
-void UART_GetData(char *, uint32_t);
+ErrorType_t UART_Send(uint8_t *, uint16_t, struct rx_at_struct *);
+void UART_Get_rxData(char *, uint32_t);
 void UART_FlushQueues();
 
 #endif /* DRIVERS_INC_UART_H_ */

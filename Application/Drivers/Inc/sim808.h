@@ -39,6 +39,16 @@ typedef enum {
 	TEXT_MODE
 } CMGF_resp_t;
 
+typedef enum {
+    NTP_SUCCESS = 1,
+    NTP_NET_ERROR = 61,
+    NTP_DNS_ERROR = 62,
+    NTP_CONNECT_ERR = 63,
+    NTP_TIMEOUT = 64,
+    NTP_SERVER_ERROR = 65,
+    NTP_OPERATION_NOT_ALLOWED = 66
+} NTP_status_t;
+
 void SIM808_handleSMS();
 void SIM808_handleCall();
 void SIM808_GPIOInit();
