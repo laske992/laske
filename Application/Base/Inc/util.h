@@ -13,9 +13,10 @@
 #include <stdint.h>
 #include "stm32l1xx_hal.h"
 
-#define SIGNAL_SIM_RI_IRQ_SMS  ( 1 << 0 )
-#define SIGNAL_SIM_RI_IRQ_CALL ( 1 << 1 )
-#define SIGNAL_START_ADC       ( 1 << 2 )
+#define SIGNAL_SIM_RI_IRQ_SMS   ( 1 << 0 )
+#define SIGNAL_SIM_RI_IRQ_CALL  ( 1 << 1 )
+#define SIGNAL_UNSOLICITED      ( 1 << 2 )
+#define SIGNAL_START_ADC        ( 1 << 3 )
 #define MAX_AT_CMD_LEN 558  /* AT + 556 cmd chars */
 
 #define PUT_BYTE(p, byte) \
@@ -43,6 +44,7 @@ typedef enum {
 
 typedef enum {
     SIM808Task = 1,
+    SIM808UnsolicitedTask,
     ADCTask
 } _TaskId;
 

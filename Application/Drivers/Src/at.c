@@ -67,7 +67,8 @@ static const struct at_req at_req[] = {
     {"AT+CNTP=",        "OK",       1000,   true,   NULL},              /* Setup NTP service */
     {"AT+CNTP",         "OK",       3000,   true,   SIM808_NTP_status}, /* Start NTP service */
     {"AT+CCLK?",        NULL,       1000,   true,   SIM808_parseTime},  /* Get current time */
-    {"AT+CIPGSMLOC=1,1",    "+CIPGSMLOC: ", 2000,   true,   SIM808_location}    /* Get GSM location */
+    {"AT+CLBS=1,1",     NULL,       3000,   false,  SIM808_location},   /* Get GSM location */
+    {"AT+CLBSCFG=1,3,", "OK",       1000,   true,   NULL}               /* Set LSB server's address */
 };
 
 /* Static functions */
@@ -479,4 +480,11 @@ at_get_gsm_location(void *location)
 {
     DEBUG_INFO("Requesting GSM location...");
     return at_send(NULL, SIM808_GET_GSM_LOCATION, 100, location);
+}
+
+ErrorType_t
+at_set_lsb_server_address(char *server)
+{
+    DEBUG_INFO("Setting LSB server's address...");
+    return at_send(server, SIM808_SET_LSB_ADDRESS, 100, NULL);
 }

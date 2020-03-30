@@ -51,17 +51,18 @@ typedef enum {
 
 typedef enum {
     GSM_LOC_SUCCESS = 0,
-    GSM_LOC_NOT_FOUND = 404,
-    GSM_LOC_REQUEST_TIMEOUT = 408,
-    GSM_LOC_NETWORK_ERROR = 601,
-    GSM_LOC_NO_MEMORY = 602,
-    GSM_LOC_DNS_ERROR = 603,
-    GSM_LOC_STACK_BUSY = 604,
-    GSM_LOC_OTHER_ERROR = 65535
+    GSM_LOC_FAILED,
+    GSM_LOC_TIMEOUT,
+    GSM_LOC_NET_ERROR,
+    GSM_LOC_DNS_ERROR,
+    GSM_LOC_SERVICE_OVERDUE,
+    GSM_LOC_AUTH_FAILED,
+    GSM_LOC_OTHER_ERROR
 } gsm_loc_status_t;
 
 void SIM808_handleSMS();
 void SIM808_handleCall();
+void SIM808_handleUnsolicited();
 void SIM808_GPIOInit();
 void SIM808_GPIODeInit();
 bool SIM808_RI_active();
@@ -70,6 +71,5 @@ ErrorType_t SIM808_SendSMS(char *);
 void SIM808_send_GET_request(char *, char *);
 void SIM808_send_POST_request(char *, char *);
 void SIM808_send_TCP_request(char *, char *, char *);
-
 
 #endif /* DRIVERS_INC_SIM808_H_ */

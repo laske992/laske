@@ -11,6 +11,7 @@
 
 UART_HandleTypeDef huart1;
 TIM_HandleTypeDef htim3;
+bool uart_unsolicited_input;
 
 static void UART_ByteReceivedHandler();
 static void UART_TransmissionCompleteHandler();
@@ -63,7 +64,7 @@ UART_Init(void)
     htim3.Instance = TIM3;
     htim3.Init.Prescaler = (uint32_t)(SystemCoreClock / 100) - 1;
     htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim3.Init.Period = 100 - 1;
+    htim3.Init.Period = 10 - 1;
     htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     HAL_TIM_Base_Init(&htim3);
 
@@ -285,7 +286,7 @@ UART_TxQueueFill(uint8_t *data)
 {
     uint16_t i;
     uint16_t txSize = strlen((char *)data);
-    for(i = 0; i < txSize; i++)
+    for (i = 0; i < txSize; i++)
     {
         UART_TxQueuePush(data[i]);
     }
@@ -385,6 +386,7 @@ static ErrorType_t
 UART_busy(uint16_t timeout)
 {
     ErrorType_t ret = Ok;
+    uart_unsolicited_input = false;
     if (xSemaphoreTake(UARTBusySemaphore, (TickType_t) timeout) == pdFALSE)
     {
         return UART_Error;
@@ -395,6 +397,7 @@ UART_busy(uint16_t timeout)
 static void
 UART_release(void)
 {
+    uart_unsolicited_input = true;
     xSemaphoreGive(UARTBusySemaphore);
 }
 
@@ -436,6 +439,10 @@ TIM3_IRQHandler(void)
 
     /* Give semaphore */
     xSemaphoreGiveFromISR(rxBinarySemaphore, &xTaskWokenByReceive);
+    if (uart_unsolicited_input)
+    {
+        _setSignal(SIM808UnsolicitedTask, SIGNAL_UNSOLICITED);
+    }
     if (xTaskWokenByReceive != pdFALSE)
     {
         taskYIELD();

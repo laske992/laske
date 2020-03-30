@@ -57,9 +57,11 @@
 #include "http.h"
 
 osThreadId SIM808TaskHandle;
+osThreadId UnsolicitedTaskHandle;
 osThreadId ADCTaskHandle;
 
 static void _HandleSIM808Task(void const *);
+static void _HandleUnsolicitedTask(void const *);
 static void _ADCTask(void const *);
 
 int main(void)
@@ -76,6 +78,10 @@ int main(void)
     /* Incoming call handle task */
     osThreadDef(HandleSIM808Task, _HandleSIM808Task, osPriorityNormal, 0, 1000);
     SIM808TaskHandle = osThreadCreate(osThread(HandleSIM808Task), NULL);
+
+    /* Task for handling unsolicited inputs from SIM808 */
+    osThreadDef(HandleUnsolicitedTask, _HandleUnsolicitedTask, osPriorityNormal, 0, 600);
+    UnsolicitedTaskHandle = osThreadCreate(osThread(HandleUnsolicitedTask), NULL);
 
     /* Measurement task */
     osThreadDef(ADCTask, _ADCTask, osPriorityNormal, 0, 600);
@@ -95,6 +101,9 @@ void _setSignal(_TaskId TaskId, int32_t bit)
     case SIM808Task:
         Thread = SIM808TaskHandle;
         break;
+    case SIM808UnsolicitedTask:
+        Thread = UnsolicitedTaskHandle;
+        break;
     case ADCTask:
         Thread = ADCTaskHandle;
         break;
@@ -105,12 +114,13 @@ void _setSignal(_TaskId TaskId, int32_t bit)
 }
 
 /* Handle incoming call function */
-static void _HandleSIM808Task(void const * argument)
+static void
+_HandleSIM808Task(void const *arg)
 {
     osEvent event;
     uint32_t signals = SIGNAL_SIM_RI_IRQ_CALL | SIGNAL_SIM_RI_IRQ_SMS;
     SIM808_Init();
-    for(;;)
+    for (;;)
     {
         /* Wait any of signals */
         event = osSignalWait(signals, osWaitForever);
@@ -130,11 +140,31 @@ static void _HandleSIM808Task(void const * argument)
     vTaskDelete(SIM808TaskHandle);
 }
 
-/* Prepare measurement data for SMS */
-static void _ADCTask(void const *argument)
+/* Handle unsolicited inputs from SIM808 */
+static void
+_HandleUnsolicitedTask(void const *arg)
 {
     osEvent event;
-    for(;;)
+    for (;;)
+    {
+        /* Wait signal from UART RX interrupt */
+        event = osSignalWait(SIGNAL_UNSOLICITED, osWaitForever);
+        if (event.value.signals & SIGNAL_UNSOLICITED)
+        {
+            DEBUG_INFO("Unsolicited kicked");
+            SIM808_handleUnsolicited();
+        }
+    }
+    /* Should not reach this point */
+    vTaskDelete(UnsolicitedTaskHandle);
+}
+
+/* Prepare measurement data for SMS */
+static void
+_ADCTask(void const *arg)
+{
+    osEvent event;
+    for (;;)
     {
         /* Wait signal from SIM808HandleTask */
         event = osSignalWait(SIGNAL_START_ADC, osWaitForever);

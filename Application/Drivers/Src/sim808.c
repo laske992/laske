@@ -34,6 +34,11 @@ struct gsm_location_t {
     float latitude;
 };
 
+struct unsolicited_message_t {
+    char messageID;
+    char message[100];
+};
+
 typedef enum {
     NONE = 0,
     HTTP_POST,
@@ -43,11 +48,16 @@ typedef enum {
 
 /* Private variables ---------------------------------------------------------*/
 TIM_HandleTypeDef htim4;
-xQueueHandle inputQueue;
-xTaskHandle  recieveTaskHandle;
-xSemaphoreHandle CDCMutex;
+xQueueHandle unsolicitedInputQueue;
 bool numberMemorized;
 struct user_phone_number_t number;
+
+static volatile bool sim808_rdy;
+static volatile bool sim808_pin_ready;
+static volatile bool sim808_call_ready;
+static volatile bool sim808_sms_ready;
+static volatile bool sim808_registered_to_network;
+static volatile bool sim808_tcp_connected;
 
 /******************************************************************************/
 
@@ -62,13 +72,26 @@ static bool SIM808_save_number(struct user_phone_number_t *, storage_type_t);
 static bool SIM808_readEEPROMNumber();
 static void SIM808_forgetNumber();
 static bool isNumberMemorized();
-static ErrorType_t SIM808_Flush_out();
 static ErrorType_t SIM808_Get_Local_IP();
 static ErrorType_t SIM808_select_connection_mode(uint8_t);
 static ErrorType_t SIM808_enable_gprs();
 static ErrorType_t SIM808_Configure_Bearer();
 static ErrorType_t SIM808_NTP_setup();
 static ErrorType_t SIM808_Set_APN();
+static ErrorType_t SIM808_wait(volatile bool *);
+static void SIM808_set_ready(bool);
+static ErrorType_t SIM808_wait_to_become_ready();
+static void SIM808_set_pin_ok(bool);
+static ErrorType_t SIM808_wait_pin_ok();
+static void SIM808_set_call_ready(bool);
+static ErrorType_t SIM808_wait_call_ready();
+static void SIM808_set_sms_ready(bool);
+static ErrorType_t SIM808_wait_sms_ready();
+static void SIM808_set_registered_to_network(bool);
+static ErrorType_t SIM808_wait_reg_to_network();
+static void SIM808_set_tcp_connected(bool);
+static ErrorType_t SIM808_wait_tcp_to_connect();
+static void SIM808_get_unsolicited_input(struct unsolicited_message_t *, uint32_t);
 static void SIM808_Timer4Start();
 static void SIM808_Timer4Stop();
 static void SIM808_EnableIRQs();
@@ -82,22 +105,31 @@ SIM808_Init(void)
     UART_Enable(RX_EN, TX_EN);
     SIM808_PowerOn();
     numberMemorized = SIM808_readEEPROMNumber();
+    unsolicitedInputQueue = xQueueCreate(2, sizeof(struct unsolicited_message_t));
+    if (unsolicitedInputQueue == NULL)
+    {
+        DEBUG_ERROR("Can not initialize queue!");
+        return SIM808_Error;
+    }
     do {
-        vTaskDelay(40);
-        if ((status = at_disable_echo())) continue;
-        if ((status = SIM808_Flush_out())) continue;
+//        at_ping();
+        if ((status = at_disable_echo()) != Ok) continue;
+        if ((status = SIM808_wait_to_become_ready()) != Ok) continue;
+        if ((status = SIM808_wait_pin_ok()) != Ok) continue;
+        if ((status = SIM808_wait_call_ready()) != Ok) continue;
+        if ((status = SIM808_wait_sms_ready()) != Ok) continue;
         if ((status = at_check_sim_card())) continue;
         if ((status = at_reg_home_network())) continue;
-        if ((status = at_check_home_network())) continue;
+        if ((status = SIM808_wait_reg_to_network()) != Ok) continue;
         if ((status = at_set_sms_center())) continue;
         if ((status = at_set_sms_text_mode())) continue;
         if ((status = at_present_call_id())) continue;
+        vTaskDelay(3000);
         if ((status = SIM808_enable_gprs())) continue;
         if ((status = SIM808_Set_APN())) continue;
-//        if ((status = SIM808_select_connection_mode(0))) continue;
         if ((status = SIM808_Configure_Bearer())) continue;
         if ((status = SIM808_NTP_setup())) continue;
-        if (status == Ok) break;
+        break;
     } while (attempts--);
     if (attempts < 0)
     {
@@ -118,6 +150,11 @@ SIM808_DeInit(void)
     UART_DeInit();
 }
 
+/**
+ * @brief: Function called from main task once SMS is received.
+ * This function will parse SMS to get SMS requested action and dispatch
+ * it to perform requested action.
+ */
 void
 SIM808_handleSMS(void)
 {
@@ -141,6 +178,11 @@ SIM808_handleSMS(void)
     }
 }
 
+/**
+ * @brief: Function called from main task once voice call is received.
+ * This function will check calling number and start ADC measurements
+ * if authorized user called in.
+ */
 void
 SIM808_handleCall(void)
 {
@@ -153,12 +195,80 @@ SIM808_handleCall(void)
     {
         at_get_time(&timestamp);
         at_bearer_open_gprs_context();
+//        at_set_lsb_server_address("\"lbs-simcom.com:3002\"");
         at_get_gsm_location(&location);
         at_bearer_close_gprs_context();
         debug_printf("Current time: %s-%s-%s T%s:%s:%s\r\n", timestamp.day, timestamp.month, timestamp.year, timestamp.hour, timestamp.minute, timestamp.second);
+        debug_printf("Coordintes: %fdeg - %fdeg\r\n", location.latitude, location.longitude);
 //        SIM808_SendSMS("Hello\r\nWorld\r\n!");
         /* Start Measurement task */
         _setSignal(ADCTask, SIGNAL_START_ADC);
+    }
+}
+
+/**
+ * @brief: Function called from main task once unsolicited input is received.
+ * This function will parse unsolicited input and dispatch action
+ * accordingly.
+ */
+void
+SIM808_handleUnsolicited(void)
+{
+    struct unsolicited_message_t unsolicited;
+    memset(&unsolicited, 0, sizeof(struct unsolicited_message_t));
+    UART_Get_rxData(unsolicited.message, 5);
+    DEBUG_INFO("#######Unsolicited input: %s ######\r\n", unsolicited.message);
+    if (STR_COMPARE(unsolicited.message, "RDY+CFUN: 1") == 0)
+    {
+        DEBUG_INFO("SIM808 ready");
+        SIM808_set_ready(true);
+    }
+    else if (STR_COMPARE(unsolicited.message, "+CPIN: READY") == 0)
+    {
+        DEBUG_INFO("No pin requested");
+        SIM808_set_pin_ok(true);
+    }
+    else if (STR_COMPARE(unsolicited.message, "Call Ready") == 0)
+    {
+        DEBUG_INFO("call ready");
+        SIM808_set_call_ready(true);
+    }
+    else if (STR_COMPARE(unsolicited.message, "SMS Ready") == 0)
+    {
+        DEBUG_INFO("SMS ready");
+        SIM808_set_sms_ready(true);
+    }
+    else if (STR_COMPARE(unsolicited.message, "+CREG: 1") == 0)
+    {
+        DEBUG_INFO("Network ready");
+        SIM808_set_registered_to_network(true);
+    }
+    else if (STR_COMPARE(unsolicited.message, "CONNECT OK") == 0)
+    {
+        DEBUG_INFO("TCP connection successful!");
+        SIM808_set_tcp_connected(true);
+    }
+    else if (STR_COMPARE(unsolicited.message, "RING+CLIP: ") == 0)
+    {
+        xQueueSend(unsolicitedInputQueue, (void *) &unsolicited, 0);
+    }
+    else if (STR_COMPARE(unsolicited.message, "+CMTI: ") == 0)
+    {
+        xQueueSend(unsolicitedInputQueue, (void *) &unsolicited, 0);
+    }
+    else if (STR_COMPARE(unsolicited.message, "+CNTP: ") == 0)
+    {
+        unsolicited.messageID = SIM808_NTP_START_SERVICE;
+        DEBUG_INFO("NTP unsolicited result code! Sending data to NTP parser!");
+        xQueueSend(unsolicitedInputQueue, (void *) &unsolicited, 0);
+    }
+    else if (STR_COMPARE(unsolicited.message, "+CLBS: ") == 0)
+    {
+        xQueueSend(unsolicitedInputQueue, (void *) &unsolicited, 0);
+    }
+    else
+    {
+        DEBUG_INFO("Unknown unsolicited: %s", unsolicited.message);
     }
 }
 
@@ -237,22 +347,7 @@ SIM808_PowerOn(void)
     HAL_GPIO_WritePin(SIM_PWR_GPIO_Port, SIM_PWR_Pin, GPIO_PIN_SET);
     vTaskDelay(1500);
     HAL_GPIO_WritePin(SIM_PWR_GPIO_Port, SIM_PWR_Pin, GPIO_PIN_RESET);
-    vTaskDelay(1500);
-}
-
-static ErrorType_t
-SIM808_Flush_out(void)
-{
-    DEBUG_INFO("Flushing SIM808 out...");
-    vTaskDelay(500);
-    at_ping();
-    vTaskDelay(500);
-    at_ping();
-    vTaskDelay(3100);
-    at_ping();
-    vTaskDelay(1000);
-    at_ping();
-    return Ok;
+    vTaskDelay(1800);
 }
 
 static ErrorType_t
@@ -336,12 +431,6 @@ SIM808_NTP_setup(void)
     return Ok;
 }
 
-//static ErrorType_t
-//SIM808_SleepMode(uint32_t cmd)
-//{
-//    return SIM808_SendAT(NULL, cmd, 100, NULL);
-//}
-
 /**
  * @brief: Read the user action from received SMS
  * @return: return the action (see SMS_action_t)
@@ -381,14 +470,14 @@ SIM808_get_sms_action(void)
 static ErrorType_t
 SIM808_readSMS(char *sms_action)
 {
-    char CMTI_resp[MAX_COMMAND_INPUT_LENGTH] = {0};
+    struct unsolicited_message_t cmti = {.messageID = '\0', .message = {0}};
     char *pos = NULL;
     char *sms_index;
     ErrorType_t status = Ok;
 
     /* Get unsolicited CMTI input */
-    UART_Get_rxData(CMTI_resp, 1500);
-    pos = strstr(CMTI_resp, "+CMTI: ");
+    SIM808_get_unsolicited_input(&cmti, 5);
+    pos = strstr(cmti.message, "+CMTI: ");
     if (pos == NULL)
     {
         DEBUG_ERROR("SMS not received!");
@@ -434,15 +523,21 @@ SIM808_parseNumber(char *resp, struct user_phone_number_t *num)
     return Ok;
 }
 
+/**
+ * @brief: Function to parse caller phone number from
+ * unsolicited +CLIP input. If calling first time, function
+ * will memorize phone number as USER1. If number already
+ * memorized, function will discard call if number is not authorized.
+ * @return: true if everything is ok, false otherwise
+ */
 static bool
 SIM808_GetNumber(void)
 {
     ErrorType_t status = SIM808_Error;
-    char CLIP_resp[MAX_COMMAND_INPUT_LENGTH] = {0};
+    struct unsolicited_message_t clip = {.messageID = '\0', .message = {0}};
     struct user_phone_number_t CallNumber = {.type = 0, .num = {0}};
-    UART_Get_rxData(CLIP_resp, 1000);
-    debug_printf("%s\r\n", CLIP_resp);
-    status = SIM808_parseNumber(CLIP_resp, &CallNumber);
+    SIM808_get_unsolicited_input(&clip, 5);
+    status = SIM808_parseNumber(clip.message, &CallNumber);
     if (status != Ok)
     {
         DEBUG_ERROR("Can not obtain number!");
@@ -468,6 +563,11 @@ SIM808_GetNumber(void)
     return true;
 }
 
+/**
+ * @brief: Function to memorize USER number. Number will be written
+ * to EEPROM and to global struct number_t.
+ * @param num: Number to memorize
+ */
 static void
 SIM808_memorizeNumber(struct user_phone_number_t *num)
 {
@@ -488,6 +588,13 @@ SIM808_memorizeNumber(struct user_phone_number_t *num)
     numberMemorized = true;
 }
 
+/**
+ * @brief: Function to prepare struct number_t to be written to
+ * EEPROM.
+ * @param num: number to store to EEPROM
+ * @param type: type of data to be stored to EEPROM (specifies address offset)
+ * @return: true if ok, false otherwise
+ */
 static bool
 SIM808_save_number(struct user_phone_number_t *num, storage_type_t type)
 {
@@ -502,6 +609,10 @@ SIM808_save_number(struct user_phone_number_t *num, storage_type_t type)
     return storage_write_data(data, sizeof(struct user_phone_number_t), type);
 }
 
+/**
+ * @brief: Function to retrieve USER number from EEPROM.
+ * @return: true if ok, false otherwise
+ */
 static bool
 SIM808_readEEPROMNumber(void)
 {
@@ -597,14 +708,11 @@ SIM808_send_POST_request(char *msg, char *url)
 void
 SIM808_send_TCP_request(char *msg, char *tcp_params, char *response)
 {
-    char connection_status[20] = {0};
     at_deactivate_gprs_context();
 //    SIM808_TCP_Enable_SSL();
     vTaskDelay(50);
     at_start_tcp_conn(tcp_params);
-    UART_Get_rxData(connection_status, 4000);
-    debug_printf("connection status = %s\r\n", connection_status);
-    if (strstr(connection_status, "CONNECT OK") == NULL)
+    if (!SIM808_wait_tcp_to_connect())
     {
         DEBUG_ERROR("TCP/IP connection not established!");
         goto out;
@@ -642,6 +750,173 @@ static bool
 isNumberMemorized(void)
 {
     return numberMemorized == true;
+}
+
+/**
+ * @brief: Handles all volatile sim808 flags.
+ * Function is waiting 20 seconds requested flag to become ready.
+ * Volatile flags are being set from task which handles
+ * unsolicited inputs.
+ * @param flag: requested flag to check
+ * @return: Ok if flag becomes ready in desired timeout (20 seconds),
+ * otherwise SIM808_Error
+ */
+static ErrorType_t
+SIM808_wait(volatile bool *flag)
+{
+    ErrorType_t status = SIM808_Error;
+    uint32_t ticks = HAL_GetTick();
+    uint32_t time_elapsed = 0;
+    while (time_elapsed <= (20 * 1000))
+    {
+        if (*flag == true)
+        {
+            status = Ok;
+            break;
+        }
+        time_elapsed = HAL_GetTick() - ticks;
+    }
+    return status;
+}
+
+/**
+ * @brief: Set sim808_rdy flag if corresponding unsolicited
+ * code is received (RDY+CFUN: 1).
+ * @param status: true/false
+ */
+static void
+SIM808_set_ready(bool status)
+{
+    sim808_rdy = status;
+}
+
+/**
+ * @brief: Wait until SIM808 becomes ready or timeout expires.
+ * @return: Ok if ready, otherwise SIM808_Error
+ */
+static ErrorType_t
+SIM808_wait_to_become_ready(void)
+{
+    return SIM808_wait(&sim808_rdy);
+}
+
+/**
+ * @brief: Set sim808_pin_ready flag if corresponding unsolicited
+ * code is received (+CPIN: READY).
+ * @param status: true/false
+ */
+static void
+SIM808_set_pin_ok(bool status)
+{
+    sim808_pin_ready = status;
+}
+
+/**
+ * @brief: Wait until SIM808 PIN becomes ready or timeout expires.
+ * @return: Ok if ready, otherwise SIM808_Error
+ */
+static ErrorType_t
+SIM808_wait_pin_ok(void)
+{
+    return SIM808_wait(&sim808_pin_ready);
+}
+
+/**
+ * @brief: Set sim808_call_ready flag if corresponding unsolicited
+ * code is received (Call Ready).
+ * @param status: true/false
+ */
+static void
+SIM808_set_call_ready(bool status)
+{
+    sim808_call_ready = status;
+}
+
+/**
+ * @brief: Wait until SIM808 Call becomes ready or timeout expires.
+ * @return: Ok if ready, otherwise SIM808_Error
+ */
+static ErrorType_t
+SIM808_wait_call_ready(void)
+{
+    return SIM808_wait(&sim808_call_ready);
+}
+
+/**
+ * @brief: Set sim808_sms_ready flag if corresponding unsolicited
+ * code is received (SMS Ready).
+ * @param status: true/false
+ */
+static void
+SIM808_set_sms_ready(bool status)
+{
+    sim808_sms_ready = status;
+}
+
+/**
+ * @brief: Wait until SIM808 SMS becomes ready or timeout expires.
+ * @return: Ok if ready, otherwise SIM808_Error
+ */
+static ErrorType_t
+SIM808_wait_sms_ready(void)
+{
+    return SIM808_wait(&sim808_sms_ready);
+}
+
+/**
+ * @brief: Set sim808_registered_to_network flag if corresponding
+ * unsolicited code is received (+CREG: 1).
+ * @param status: true/false
+ */
+static void
+SIM808_set_registered_to_network(bool status)
+{
+    sim808_registered_to_network = status;
+}
+
+/**
+ * @brief: Wait until SIM808 registers to network or timeout expires.
+ * @return: Ok if ready, otherwise SIM808_Error
+ */
+static ErrorType_t
+SIM808_wait_reg_to_network(void)
+{
+    return SIM808_wait(&sim808_registered_to_network);
+}
+
+/**
+ * @brief: Set sim808_tcp_connected flag if corresponding
+ * unsolicited code is received (CONNECT OK).
+ * @param status: true/false
+ */
+static void
+SIM808_set_tcp_connected(bool status)
+{
+    sim808_tcp_connected = status;
+}
+
+/**
+ * @brief: Wait until SIM808 establishes TCP connection.
+ * @return: Ok if ready, otherwise SIM808_Error
+ */
+static ErrorType_t
+SIM808_wait_tcp_to_connect(void)
+{
+    return SIM808_wait(&sim808_tcp_connected);
+}
+
+/**
+ * @brief: Receive an unsolicited input from task which handles
+ * all unsolicited result codes. Block for timeout ticks if a
+ * message is not immediately available.
+ */
+static void
+SIM808_get_unsolicited_input(struct unsolicited_message_t *um, uint32_t timeout)
+{
+    if (unsolicitedInputQueue != NULL)
+    {
+        xQueueReceive(unsolicitedInputQueue, um, (TickType_t) timeout);
+    }
 }
 
 static void
@@ -703,7 +978,7 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     }
 }
 
-/*
+/**
  * @brief: If timer kicks the timeout, SIM808 is receiving the call
  *         Timeout is 1200ms
  */
@@ -864,7 +1139,9 @@ SIM808_GPRS_status(char *resp, void *unused)
 
 /**
  * @brief: Callback for checking NTP status after NTP started.
- * @param resp: response from SIM808
+ * Function should receive NTP status as an unsolicited input
+ * task which handles unsolicited inputs.
+ * @param resp: response from SIM808 (should be empty)
  * @param unused
  * @return: Ok if response is 1 (Success)
  */
@@ -873,16 +1150,11 @@ SIM808_NTP_status(char *resp, void *unused)
 {
     ErrorType_t status;
     NTP_status_t s;
-    char cntp[10] = {0};
+    struct unsolicited_message_t cntp = {.messageID = '\0', .message = {0}};
     char *p = NULL;
-    debug_printf("%s: resp = %s\r\n", __func__, resp);
-    p = strstr(resp, "+CNTP: ");
-    if (p == NULL)
-    {
-        UART_Get_rxData(cntp, 1500);
-    }
-    debug_printf("%s: cntp = %s\r\n", __func__, cntp);
-    p = strstr(cntp, "+CNTP: ");
+
+    SIM808_get_unsolicited_input(&cntp, 1500);
+    p = strstr(cntp.message, "+CNTP: ");
     if (p == NULL)
     {
         DEBUG_ERROR("NTP not started properly!");
@@ -991,12 +1263,24 @@ SIM808_location(char *resp, void *arg)
 {
     gsm_loc_status_t state;
     struct gsm_location_t *gl = arg;
+    struct unsolicited_message_t clbs = {.messageID = '\0', .message = {0}};
     char *p = NULL;
     ErrorType_t status = Ok;
-    state = atoi(resp);
+
+    /* Get CLBS unsolicited input */
+    SIM808_get_unsolicited_input(&clbs, 10000);
+    debug_printf("%s: clbs input: %s\r\n", __func__, clbs.message);
+    p = strstr(clbs.message, "+CLBS: ");
+    if (p == NULL)
+    {
+        DEBUG_ERROR("Bad input");
+        return SIM808_Error;
+    }
+    p += strlen("+CLBS: ");
+    state = atoi(p);
     if (state == GSM_LOC_SUCCESS)
     {
-        p = strchr(resp, ',');
+        p = strchr(p, ',');
         if (p == NULL)
         {
             DEBUG_ERROR("Can not obtain location!");

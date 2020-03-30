@@ -58,7 +58,8 @@ enum {
     SIM808_NTP_SETUP_SERVICE,
     SIM808_NTP_START_SERVICE,
     SIM808_GET_TIME,
-    SIM808_GET_GSM_LOCATION
+    SIM808_GET_GSM_LOCATION,
+    SIM808_SET_LSB_ADDRESS
 };
 
 ErrorType_t at_disable_echo();
@@ -104,6 +105,7 @@ ErrorType_t at_ntp_start_sync();
 ErrorType_t at_get_time(void *);
 ErrorType_t at_get_local_ip_addr(char *ip_addr);
 ErrorType_t at_get_gsm_location(void *);
+ErrorType_t at_set_lsb_server_address(char *);
 
 /******** AT response parsing callbacks ***********/
 typedef ErrorType_t (SIM808_parseResp)(char *, void *);
