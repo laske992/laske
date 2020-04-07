@@ -60,11 +60,16 @@ UART_Init(void)
     // Init timer
     __HAL_RCC_TIM3_CLK_ENABLE();
 
-    /* Period is 100us */
+    /**
+     * Prescaler = X - 1
+     * Period = Y - 1
+     * update = 32MHz / (X * Y) = 32MHz / (320 * 10) = 100kHz
+     * period is 100us
+     **/
     htim3.Instance = TIM3;
-    htim3.Init.Prescaler = (uint32_t)(SystemCoreClock / 100) - 1;
+    htim3.Init.Prescaler = (uint32_t)(SystemCoreClock / 100000) - 1;   /* 32MHz / 10e5 - 1 = 320 - 1 */
     htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim3.Init.Period = 100 - 1;
+    htim3.Init.Period = 10 - 1;
     htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     HAL_TIM_Base_Init(&htim3);
 
@@ -370,6 +375,7 @@ static void
 UART_Timer35Start(void)
 {
     htim3.Instance->CNT = 0;
+    __HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_UPDATE);
     HAL_TIM_Base_Start_IT(&htim3);
 }
 
