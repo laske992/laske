@@ -99,7 +99,7 @@
 #define configUSE_IDLE_HOOK                      0
 #define configUSE_TICK_HOOK                      0
 #define configCPU_CLOCK_HZ                       ( SystemCoreClock )
-#define configTICK_RATE_HZ                       ((TickType_t)1000)
+#define configTICK_RATE_HZ                       ((TickType_t)100)
 #define configMAX_PRIORITIES                     ( 10 )
 #define configMINIMAL_STACK_SIZE                 ((uint16_t)128)
 #define configTOTAL_HEAP_SIZE                    ((size_t)(15 * 1024))
@@ -107,7 +107,7 @@
 #define configUSE_16_BIT_TICKS                   0
 #define configUSE_MUTEXES                        1
 #define configQUEUE_REGISTRY_SIZE                8
-#define configUSE_TICKLESS_IDLE									 0
+#define configUSE_TICKLESS_IDLE                  2
 
 
 #define configCHECK_FOR_STACK_OVERFLOW          0
@@ -177,6 +177,10 @@ standard names. */
 
 /* USER CODE BEGIN Defines */   	      
 /* Section where parameter definitions can be added (for instance, to override default ones in FreeRTOS.h) */
+    extern void pre_sleep_processing(uint32_t *xModifiableIdleTime);
+#define configPRE_SLEEP_PROCESSING(x)   pre_sleep_processing(x)
+    extern void post_sleep_processing(uint32_t *xExpectedIdleTime);
+#define configPOST_SLEEP_PROCESSING(x)  post_sleep_processing(x)
 /* USER CODE END Defines */ 
 
 #endif /* FREERTOS_CONFIG_H */

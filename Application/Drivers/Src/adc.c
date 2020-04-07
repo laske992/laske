@@ -131,7 +131,7 @@ void ADC_startMeasurement(void)
 static void ADC_Start(void)
 {
 	HAL_GPIO_WritePin(ADC_PWR_GPIO_Port, ADC_PWR_Pin, GPIO_PIN_SET);
-	vTaskDelay(10);
+	delay_ms(10);
 	HAL_ADC_Start_DMA(&hadc, (uint32_t *)ADC_ReadValue, 3);
 }
 

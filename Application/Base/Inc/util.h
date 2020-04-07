@@ -63,5 +63,6 @@ void debug_printf(const char *fmt, ...);
 void _setSignal(_TaskId, int32_t);
 int put_data(char **, const char *, int);
 uint8_t gencrc(uint8_t *, size_t);
+void delay_ms(uint16_t);
 
 #endif /* BASE_INC_UTIL_H_ */

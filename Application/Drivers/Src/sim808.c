@@ -124,7 +124,7 @@ SIM808_Init(void)
         if ((status = at_set_sms_center())) continue;
         if ((status = at_set_sms_text_mode())) continue;
         if ((status = at_present_call_id())) continue;
-        vTaskDelay(3000);
+        delay_ms(3000);
         if ((status = SIM808_enable_gprs())) continue;
         if ((status = SIM808_Set_APN())) continue;
         if ((status = SIM808_Configure_Bearer())) continue;
@@ -336,7 +336,7 @@ SIM808_wakeUp(void)
     /* Pull down DTR pin */
     HAL_GPIO_WritePin(GPIOB, SIM_DTR_Pin, GPIO_PIN_RESET);
 
-    vTaskDelay(40);
+    delay_ms(40);
     at_ping();
     at_exit_sleep_mode();
 }
@@ -345,9 +345,9 @@ static void
 SIM808_PowerOn(void)
 {
     HAL_GPIO_WritePin(SIM_PWR_GPIO_Port, SIM_PWR_Pin, GPIO_PIN_SET);
-    vTaskDelay(1500);
+    delay_ms(1500);
     HAL_GPIO_WritePin(SIM_PWR_GPIO_Port, SIM_PWR_Pin, GPIO_PIN_RESET);
-    vTaskDelay(1800);
+    delay_ms(1800);
 }
 
 static ErrorType_t
@@ -394,7 +394,7 @@ SIM808_SendTCP_Packet(char *message)
         DEBUG_ERROR("Can not send TCP packet");
         return status;
     }
-    vTaskDelay(2000);
+    delay_ms(2000);
     if ((status = at_send_tcp_packet(message)))
     {
         return status;
@@ -545,7 +545,7 @@ SIM808_GetNumber(void)
     }
     while (at_hang_up())
     {
-        vTaskDelay(40); /* Until success */
+        delay_ms(40); /* Until success */
     }
     if (!isNumberMemorized())
     {
@@ -648,10 +648,10 @@ SIM808_SendSMS(char *message)
     ErrorType_t status = Ok;
     if ((status = at_sms_prepare_to_send(number.num)))
     {
-        vTaskDelay(100);
+        delay_ms(100);
         //return status;
     }
-    vTaskDelay(3000);
+    delay_ms(3000);
     if ((status = at_sms_send(message)))
     {
         return status;
@@ -667,15 +667,15 @@ SIM808_send_GET_request(char *url, char *response)
     at_bearer_open_gprs_context();
     /* HTTP GET */
     at_http_init();
-    vTaskDelay(30);
-    vTaskDelay(30);
+    delay_ms(30);
+    delay_ms(30);
     at_http_set_param("\"CID\",1");
     at_http_set_param(url);
     at_http_set_param("\"CONTENT\",\"application/json\"");
 //    SIM808_HTTP_Enable_SSL();
-    vTaskDelay(30);
+    delay_ms(30);
     at_http_get();
-    vTaskDelay(3000);
+    delay_ms(3000);
     at_http_read_server_data();
     UART_Get_rxData(response, 2000);
     at_http_terminate();
@@ -691,15 +691,15 @@ SIM808_send_POST_request(char *msg, char *url)
     at_bearer_open_gprs_context();
     /* HTTP GET */
     at_http_init();
-    vTaskDelay(50);
+    delay_ms(50);
     at_http_set_param("\"CID\",1");
     at_http_set_param(url);
     at_http_set_param("\"CONTENT\",\"application/json\"");
 //    SIM808_HTTP_Enable_SSL();
-    vTaskDelay(30);
+    delay_ms(30);
     at_http_pepare_post_data(strlen(msg), 50000);
     at_http_post();
-    vTaskDelay(3000);
+    delay_ms(3000);
     at_http_terminate();
     at_bearer_close_gprs_context();
     debug_printf("sent post req: %s\r\n", msg);
@@ -710,14 +710,14 @@ SIM808_send_TCP_request(char *msg, char *tcp_params, char *response)
 {
     at_deactivate_gprs_context();
 //    SIM808_TCP_Enable_SSL();
-    vTaskDelay(50);
+    delay_ms(50);
     at_start_tcp_conn(tcp_params);
     if (!SIM808_wait_tcp_to_connect())
     {
         DEBUG_ERROR("TCP/IP connection not established!");
         goto out;
     }
-    vTaskDelay(50);
+    delay_ms(50);
     SIM808_SendTCP_Packet(msg);
     UART_Get_rxData(response, 4000);
     debug_printf("###### RECEIVDED DATA: %s\r\n", response);

@@ -74,7 +74,6 @@ int main(void)
     ADC_Init();
 
     /* Create the thread(s) */
-
     /* Incoming call handle task */
     osThreadDef(HandleSIM808Task, _HandleSIM808Task, osPriorityNormal, 0, 1000);
     SIM808TaskHandle = osThreadCreate(osThread(HandleSIM808Task), NULL);
@@ -175,4 +174,21 @@ _ADCTask(void const *arg)
     }
     /* Should not reach this point */
     vTaskDelete(ADCTaskHandle);
+}
+
+void
+pre_sleep_processing(uint32_t *xModifiableIdleTime)
+{
+    (void) xModifiableIdleTime;
+    UART_Enable(RX_EN, TX_EN);
+    HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+    HAL_NVIC_EnableIRQ(TIM4_IRQn);
+    HAL_NVIC_EnableIRQ(TIM3_IRQn);
+
+}
+
+void
+post_sleep_processing(uint32_t *xExpectedIdleTime)
+{
+    (void) xExpectedIdleTime;
 }

@@ -40,8 +40,6 @@ void config_init();
 
 void Error_Handler(ErrorType_t);
 
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *);
-
 void _Error_Handler(char *, int);
 
 #endif /* BASE_INC_CONFIG_H_ */

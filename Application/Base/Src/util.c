@@ -80,3 +80,9 @@ gencrc(uint8_t *data, size_t len)
     }
     return crc;
 }
+
+void
+delay_ms(uint16_t ms)
+{
+    vTaskDelay(ms / portTICK_PERIOD_MS);
+}
