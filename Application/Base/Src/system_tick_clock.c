@@ -235,12 +235,16 @@ vPortSuppressTicksAndSleep( TickType_t xExpectedIdleTime )
     uint32_t ulCompleteTickPeriods = 0U;
     eSleepModeStatus eSleepAction = eAbortSleep;
     TickType_t xModifiableIdleTime = (TickType_t) 0U;
+    /****/
+    uint8_t standby = 0;
+    /****/
 
     /* THIS FUNCTION IS CALLED WITH THE SCHEDULER SUSPENDED. */
 
     /* Make sure the TIM2 reload value does not overflow the counter. */
     if( xExpectedIdleTime > xMaximumPossibleSuppressedTicks )
     {
+        standby = 1;
         xExpectedIdleTime = xMaximumPossibleSuppressedTicks;
     }
 
@@ -313,8 +317,16 @@ vPortSuppressTicksAndSleep( TickType_t xExpectedIdleTime )
         instruction. */
         if( xModifiableIdleTime > 0 )
         {
-            /* Go sleep */
-            HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);  /* PWR_LOWPOWERREGULATOR_ON */
+            if (standby == 1)
+            {
+                /* Go Standby */
+                HAL_PWR_EnterSTANDBYMode();
+            }
+            else
+            {
+                /* Go sleep */
+                HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);  /* PWR_LOWPOWERREGULATOR_ON */
+            }
         }
 
         /* Allow the application to define some post sleep processing.  This is

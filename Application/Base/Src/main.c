@@ -50,7 +50,6 @@
 #include "config.h"
 #include "cmsis_os.h"
 #include "led.h"
-#include "power.h"
 #include "adc.h"
 #include "sim808.h"
 #include "util.h"
@@ -184,7 +183,7 @@ pre_sleep_processing(uint32_t *xModifiableIdleTime)
     HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
     HAL_NVIC_EnableIRQ(TIM4_IRQn);
     HAL_NVIC_EnableIRQ(TIM3_IRQn);
-
+    HAL_NVIC_EnableIRQ(RTC_WKUP_IRQn);
 }
 
 void

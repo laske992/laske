@@ -8,6 +8,7 @@
 #include "sim808.h"
 #include "json.h"
 #include "at.h"
+#include "rtc.h"
 
 /* Private define ------------------------------------------------------------*/
 
@@ -1229,6 +1230,17 @@ SIM808_parseTime(char *resp, void *arg)
             put_data(&second, p, 2);
         }
     }
+    /******/
+    /* Init RTC */
+    struct rtc_time_t rt;
+    rt.year = atoi(lt->year);
+    rt.month = atoi(lt->month);
+    rt.day = atoi(lt->day);
+    rt.hour = atoi(lt->hour);
+    rt.minute = atoi(lt->minute);
+    rt.second = atoi(lt->second);
+    rtc_init(&rt);
+    /******/
     return status;
 }
 
