@@ -65,4 +65,16 @@ int put_data(char **, const char *, int);
 uint8_t gencrc(uint8_t *, size_t);
 void delay_ms(uint16_t);
 
+/**
+ * Function to init TIMER 11 for the microsecond delay.
+ */
+void us_timer_delay_init(void);
+
+/**
+ * Function to insert the delay of au16_us microseconds.
+ * It should be used for delays up to 100us only, as
+ * larger delays may impact systick.
+ */
+void delay_us(uint16_t au16_us);
+
 #endif /* BASE_INC_UTIL_H_ */

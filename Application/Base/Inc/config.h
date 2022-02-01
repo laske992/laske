@@ -36,6 +36,9 @@
 #define ADC_PWR_Pin                 GPIO_PIN_0
 #define ADC_PWR_GPIO_Port           GPIOA
 
+#define HX711_GPIO_Port             GPIOB
+#define HX711_PD_SCK_Pin            GPIO_PIN_8
+#define HX711_DOUT_Pin              GPIO_PIN_9
 void config_init();
 
 void Error_Handler(ErrorType_t);
